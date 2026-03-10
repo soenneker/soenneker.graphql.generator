@@ -1,0 +1,2334 @@
+Drop-in upgraded version
+
+Below is a direct evolution of your generator.
+I’m not rewriting your whole app structure, just extending it so it can:
+
+organize files into folders
+
+emit transport files
+
+generate query/mutation clients
+
+auto-select fields
+
+Replace your SchemaGenerator with this
+sealed class SchemaGenerator
+{
+    private readonly GeneratorConfig _config;
+    private readonly Dictionary<string, string> _scalarMap;
+    private readonly HashSet<string> _definedScalars = new(StringComparer.Ordinal);
+    private readonly HashSet<string> _definedEnums = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, GraphQLObjectTypeDefinition> _objectTypes = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, GraphQLInputObjectTypeDefinition> _inputTypes = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, GraphQLInterfaceTypeDefinition> _interfaceTypes = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, GraphQLUnionTypeDefinition> _unionTypes = new(StringComparer.Ordinal);
+
+    public SchemaGenerator(GeneratorConfig config, GraphQLDocument document)
+    {
+        _config = config;
+        _scalarMap = CreateScalarMap(config);
+
+        foreach (ASTNode definition in document.Definitions)
+        {
+            switch (definition)
+            {
+                case GraphQLScalarTypeDefinition scalar:
+                    _definedScalars.Add(NameOf(scalar.Name));
+                    break;
+
+                case GraphQLEnumTypeDefinition enm:
+                    _definedEnums.Add(ToClrTypeName(NameOf(enm.Name)));
+                    break;
+
+                case GraphQLObjectTypeDefinition obj:
+                    _objectTypes[NameOf(obj.Name)] = obj;
+                    break;
+
+                case GraphQLInputObjectTypeDefinition input:
+                    _inputTypes[NameOf(input.Name)] = input;
+                    break;
+
+                case GraphQLInterfaceTypeDefinition iface:
+                    _interfaceTypes[NameOf(iface.Name)] = iface;
+                    break;
+
+                case GraphQLUnionTypeDefinition union:
+                    _unionTypes[NameOf(union.Name)] = union;
+                    break;
+            }
+        }
+    }
+
+    public GenerationResult Generate(GraphQLDocument document)
+    {
+        var files = new List<GeneratedFile>();
+
+        int objectCount = 0;
+        int inputCount = 0;
+        int enumCount = 0;
+        int interfaceCount = 0;
+        int unionCount = 0;
+        int scalarCount = 0;
+        int operationCount = 0;
+
+        foreach (ASTNode definition in document.Definitions)
+        {
+            switch (definition)
+            {
+                case GraphQLObjectTypeDefinition obj:
+                    if (IsBuiltInRootType(NameOf(obj.Name)) && !_config.EmitRootTypes)
+                        continue;
+
+                    files.Add(GenerateObjectType(obj));
+                    objectCount++;
+                    break;
+
+                case GraphQLInputObjectTypeDefinition input:
+                    files.Add(GenerateInputType(input));
+                    inputCount++;
+                    break;
+
+                case GraphQLEnumTypeDefinition enm:
+                    files.Add(GenerateEnumType(enm));
+                    enumCount++;
+                    break;
+
+                case GraphQLInterfaceTypeDefinition iface:
+                    files.Add(GenerateInterfaceType(iface));
+                    interfaceCount++;
+                    break;
+
+                case GraphQLUnionTypeDefinition union:
+                    files.Add(GenerateUnionType(union));
+                    unionCount++;
+                    break;
+
+                case GraphQLScalarTypeDefinition scalar:
+                    if (_config.EmitScalarAliases)
+                        files.Add(GenerateScalarAlias(scalar));
+
+                    scalarCount++;
+                    break;
+            }
+        }
+
+        files.AddRange(GenerateTransportFiles());
+
+        if (_config.EmitOperationClients)
+        {
+            IReadOnlyList<GeneratedFile> operationFiles = GenerateOperationFiles();
+            files.AddRange(operationFiles);
+            operationCount += operationFiles.Count;
+        }
+
+        if (_config.EmitJsonSerializerContext)
+            files.Add(GenerateJsonContext(document));
+
+        return new GenerationResult(
+            files,
+            objectCount,
+            inputCount,
+            enumCount,
+            interfaceCount,
+            unionCount,
+            scalarCount,
+            operationCount);
+    }
+
+    private IReadOnlyList<GeneratedFile> GenerateTransportFiles()
+    {
+        return
+        [
+            GenerateGraphQlRequestFile(),
+            GenerateGraphQlErrorFile(),
+            GenerateGraphQlResponseFile(),
+            GenerateIGraphQlClientFile(),
+            GenerateGraphQlHttpClientFile()
+        ];
+    }
+
+    private IReadOnlyList<GeneratedFile> GenerateOperationFiles()
+    {
+        var files = new List<GeneratedFile>();
+
+        GraphQLObjectTypeDefinition? queryRoot = FindObjectType(_config.QueryRootTypeName);
+        GraphQLObjectTypeDefinition? mutationRoot = FindObjectType(_config.MutationRootTypeName);
+
+        if (queryRoot is not null)
+            files.Add(GenerateOperationsClient(queryRoot, "Query", "Queries"));
+
+        if (mutationRoot is not null)
+            files.Add(GenerateOperationsClient(mutationRoot, "Mutation", "Mutations"));
+
+        return files;
+    }
+
+    private GeneratedFile GenerateOperationsClient(GraphQLObjectTypeDefinition rootType, string classPrefix, string folderName)
+    {
+        var sb = new StringBuilder();
+        AppendHeader(sb);
+
+        sb.AppendLine("using System.Net.Http;");
+        sb.AppendLine("using System.Threading;");
+        sb.AppendLine("using System.Threading.Tasks;");
+        sb.AppendLine();
+
+        string clientName = $"{classPrefix}Client";
+
+        AppendDescription(sb, $"Generated GraphQL {classPrefix.ToLowerInvariant()} client.", 0);
+        sb.Append("public sealed partial class ").Append(clientName).AppendLine();
+        sb.AppendLine("{");
+        sb.AppendLine("    private readonly IGraphQlClient _graphQlClient;");
+        sb.AppendLine();
+        sb.Append("    public ").Append(clientName).AppendLine("(IGraphQlClient graphQlClient)");
+        sb.AppendLine("    {");
+        sb.AppendLine("        _graphQlClient = graphQlClient;");
+        sb.AppendLine("    }");
+        sb.AppendLine();
+
+        if (rootType.Fields?.Items is { Count: > 0 })
+        {
+            foreach (GraphQLFieldDefinition field in rootType.Fields.Items)
+            {
+                AppendGeneratedOperationMethod(sb, field, classPrefix);
+            }
+        }
+
+        sb.AppendLine("}");
+
+        return new GeneratedFile($"Clients/{folderName}/{clientName}.cs", sb.ToString());
+    }
+
+    private void AppendGeneratedOperationMethod(StringBuilder sb, GraphQLFieldDefinition field, string operationKind)
+    {
+        string fieldName = NameOf(field.Name);
+        string methodName = ToOperationMethodName(fieldName, operationKind);
+        string resultClrType = MapOutputType(field.Type);
+        string unwrappedGraphQlType = GetNamedType(field.Type);
+        string selectionSet = BuildSelectionSet(field.Type, _config.MaxSelectionDepth);
+
+        var args = field.Arguments?.Items?.ToList() ?? [];
+        string parameterList = BuildMethodParameterList(args);
+        string variablesObject = BuildVariablesObjectInitializer(args);
+        string variableDefinitions = BuildOperationVariableDefinitions(args);
+        string fieldArguments = BuildFieldArgumentList(args);
+
+        string gqlOperationType = operationKind.Equals("Mutation", StringComparison.Ordinal) ? "mutation" : "query";
+
+        sb.Append("    public Task<GraphQlResponse<")
+          .Append(resultClrType)
+          .Append(">> ")
+          .Append(methodName)
+          .Append('(');
+
+        if (parameterList.Length > 0)
+        {
+            sb.Append(parameterList).Append(", ");
+        }
+
+        sb.AppendLine("CancellationToken cancellationToken = default)");
+        sb.AppendLine("    {");
+
+        sb.Append("        const string query = @\"")
+          .Append(gqlOperationType)
+          .Append(' ')
+          .Append(methodName);
+
+        if (variableDefinitions.Length > 0)
+            sb.Append('(').Append(variableDefinitions).Append(')');
+
+        sb.Append(" { ")
+          .Append(fieldName);
+
+        if (fieldArguments.Length > 0)
+            sb.Append('(').Append(fieldArguments).Append(')');
+
+        sb.Append(' ');
+
+        if (!string.IsNullOrWhiteSpace(selectionSet))
+            sb.Append(selectionSet).Append(' ');
+
+        sb.Append("}\";")
+          .AppendLine();
+
+        if (args.Count == 0)
+        {
+            sb.AppendLine("        object? variables = null;");
+        }
+        else
+        {
+            sb.Append("        object variables = new")
+              .AppendLine();
+            sb.AppendLine("        {");
+
+            for (int i = 0; i < args.Count; i++)
+            {
+                GraphQLInputValueDefinition arg = args[i];
+                string argName = NameOf(arg.Name);
+                string clrArgName = ToCamelCase(ToClrPropertyName(argName, "Arg"));
+
+                sb.Append("            ").Append(clrArgName).Append(" = ").Append(clrArgName);
+
+                if (i < args.Count - 1)
+                    sb.Append(',');
+
+                sb.AppendLine();
+            }
+
+            sb.AppendLine("        };");
+        }
+
+        sb.Append("        return _graphQlClient.ExecuteAsync<")
+          .Append(resultClrType)
+          .Append(">(query, variables, cancellationToken);")
+          .AppendLine();
+
+        sb.AppendLine("    }");
+        sb.AppendLine();
+    }
+
+    private string BuildSelectionSet(GraphQLType fieldType, int maxDepth)
+    {
+        string namedType = GetNamedType(fieldType);
+
+        if (IsScalarOrEnum(namedType))
+            return string.Empty;
+
+        if (_objectTypes.TryGetValue(namedType, out GraphQLObjectTypeDefinition? obj))
+        {
+            var visited = new HashSet<string>(StringComparer.Ordinal);
+            return BuildSelectionSetForObject(obj, maxDepth, visited);
+        }
+
+        if (_interfaceTypes.TryGetValue(namedType, out GraphQLInterfaceTypeDefinition? iface))
+        {
+            return BuildSelectionSetForInterface(iface, maxDepth, new HashSet<string>(StringComparer.Ordinal));
+        }
+
+        return string.Empty;
+    }
+
+    private string BuildSelectionSetForObject(GraphQLObjectTypeDefinition obj, int remainingDepth, HashSet<string> visited)
+    {
+        string objectName = NameOf(obj.Name);
+
+        if (remainingDepth < 0)
+            return string.Empty;
+
+        if (!visited.Add(objectName))
+            return string.Empty;
+
+        try
+        {
+            var fields = new List<string>();
+
+            if (obj.Fields?.Items is { Count: > 0 })
+            {
+                foreach (GraphQLFieldDefinition field in obj.Fields.Items)
+                {
+                    string fieldName = NameOf(field.Name);
+                    string namedType = GetNamedType(field.Type);
+
+                    if (field.Arguments?.Items is { Count: > 0 })
+                    {
+                        if (IsUsefulSpecialField(fieldName))
+                        {
+                            string nestedSpecial = BuildSpecialNestedSelection(fieldName, field.Type, remainingDepth, visited);
+                            if (!string.IsNullOrWhiteSpace(nestedSpecial))
+                                fields.Add($"{fieldName} {nestedSpecial}");
+                        }
+
+                        continue;
+                    }
+
+                    if (IsScalarOrEnum(namedType))
+                    {
+                        fields.Add(fieldName);
+                        continue;
+                    }
+
+                    if (remainingDepth == 0)
+                        continue;
+
+                    if (TryBuildConnectionSelection(fieldName, field.Type, remainingDepth, visited, out string? connectionSelection))
+                    {
+                        fields.Add($"{fieldName} {connectionSelection}");
+                        continue;
+                    }
+
+                    if (_objectTypes.TryGetValue(namedType, out GraphQLObjectTypeDefinition? nestedObject))
+                    {
+                        string nested = BuildSelectionSetForObject(nestedObject, remainingDepth - 1, visited);
+                        if (!string.IsNullOrWhiteSpace(nested))
+                            fields.Add($"{fieldName} {nested}");
+                    }
+                    else if (_interfaceTypes.TryGetValue(namedType, out GraphQLInterfaceTypeDefinition? nestedInterface))
+                    {
+                        string nested = BuildSelectionSetForInterface(nestedInterface, remainingDepth - 1, visited);
+                        if (!string.IsNullOrWhiteSpace(nested))
+                            fields.Add($"{fieldName} {nested}");
+                    }
+                    else if (IsUsefulSpecialField(fieldName))
+                    {
+                        string nested = BuildSpecialNestedSelection(fieldName, field.Type, remainingDepth - 1, visited);
+                        if (!string.IsNullOrWhiteSpace(nested))
+                            fields.Add($"{fieldName} {nested}");
+                    }
+                }
+            }
+
+            if (fields.Count == 0)
+                return "{ id }";
+
+            return "{ " + string.Join(" ", fields.Distinct(StringComparer.Ordinal)) + " }";
+        }
+        finally
+        {
+            visited.Remove(objectName);
+        }
+    }
+
+    private string BuildSelectionSetForInterface(GraphQLInterfaceTypeDefinition iface, int remainingDepth, HashSet<string> visited)
+    {
+        string interfaceName = NameOf(iface.Name);
+
+        if (remainingDepth < 0)
+            return string.Empty;
+
+        if (!visited.Add(interfaceName))
+            return string.Empty;
+
+        try
+        {
+            var fields = new List<string>();
+
+            if (iface.Fields?.Items is { Count: > 0 })
+            {
+                foreach (GraphQLFieldDefinition field in iface.Fields.Items)
+                {
+                    if (field.Arguments?.Items is { Count: > 0 })
+                        continue;
+
+                    string fieldName = NameOf(field.Name);
+                    string namedType = GetNamedType(field.Type);
+
+                    if (IsScalarOrEnum(namedType))
+                        fields.Add(fieldName);
+                }
+            }
+
+            if (fields.Count == 0)
+                return string.Empty;
+
+            return "{ " + string.Join(" ", fields.Distinct(StringComparer.Ordinal)) + " }";
+        }
+        finally
+        {
+            visited.Remove(interfaceName);
+        }
+    }
+
+    private bool TryBuildConnectionSelection(string fieldName, GraphQLType fieldType, int remainingDepth, HashSet<string> visited, out string? selection)
+    {
+        selection = null;
+
+        string namedType = GetNamedType(fieldType);
+        if (!_objectTypes.TryGetValue(namedType, out GraphQLObjectTypeDefinition? obj))
+            return false;
+
+        bool hasNodes = HasField(obj, "nodes");
+        bool hasEdges = HasField(obj, "edges");
+        bool hasPageInfo = HasField(obj, "pageInfo");
+
+        if (!hasNodes && !hasEdges && !hasPageInfo)
+            return false;
+
+        var parts = new List<string>();
+
+        if (hasNodes)
+        {
+            GraphQLFieldDefinition? nodesField = GetField(obj, "nodes");
+            if (nodesField is not null)
+            {
+                string nodeNamedType = GetNamedType(nodesField.Type);
+                if (_objectTypes.TryGetValue(nodeNamedType, out GraphQLObjectTypeDefinition? nodeType))
+                {
+                    string nested = BuildSelectionSetForObject(nodeType, remainingDepth - 1, visited);
+                    if (!string.IsNullOrWhiteSpace(nested))
+                        parts.Add($"nodes {nested}");
+                    else
+                        parts.Add("nodes { id }");
+                }
+                else
+                {
+                    parts.Add("nodes");
+                }
+            }
+        }
+        else if (hasEdges)
+        {
+            GraphQLFieldDefinition? edgesField = GetField(obj, "edges");
+            if (edgesField is not null)
+            {
+                string edgeTypeName = GetNamedType(edgesField.Type);
+                if (_objectTypes.TryGetValue(edgeTypeName, out GraphQLObjectTypeDefinition? edgeType))
+                {
+                    GraphQLFieldDefinition? nodeField = GetField(edgeType, "node");
+                    if (nodeField is not null)
+                    {
+                        string nodeNamedType = GetNamedType(nodeField.Type);
+                        if (_objectTypes.TryGetValue(nodeNamedType, out GraphQLObjectTypeDefinition? nodeType))
+                        {
+                            string nested = BuildSelectionSetForObject(nodeType, remainingDepth - 1, visited);
+                            parts.Add(!string.IsNullOrWhiteSpace(nested)
+                                ? $"edges {{ cursor node {nested} }}"
+                                : "edges { cursor node { id } }");
+                        }
+                    }
+                }
+            }
+        }
+
+        if (hasPageInfo)
+            parts.Add("pageInfo { hasNextPage hasPreviousPage startCursor endCursor }");
+
+        if (parts.Count == 0)
+            return false;
+
+        selection = "{ " + string.Join(" ", parts) + " }";
+        return true;
+    }
+
+    private string BuildSpecialNestedSelection(string fieldName, GraphQLType fieldType, int remainingDepth, HashSet<string> visited)
+    {
+        string namedType = GetNamedType(fieldType);
+
+        if (string.Equals(fieldName, "userErrors", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(fieldName, "errors", StringComparison.OrdinalIgnoreCase))
+        {
+            return "{ field message code }";
+        }
+
+        if (_objectTypes.TryGetValue(namedType, out GraphQLObjectTypeDefinition? obj))
+            return BuildSelectionSetForObject(obj, remainingDepth, visited);
+
+        if (_interfaceTypes.TryGetValue(namedType, out GraphQLInterfaceTypeDefinition? iface))
+            return BuildSelectionSetForInterface(iface, remainingDepth, visited);
+
+        return string.Empty;
+    }
+
+    private static bool IsUsefulSpecialField(string fieldName)
+    {
+        return fieldName is "userErrors" or "errors" or "pageInfo" or "nodes" or "edges" or "node";
+    }
+
+    private bool HasField(GraphQLObjectTypeDefinition obj, string fieldName)
+    {
+        return obj.Fields?.Items?.Any(f => string.Equals(NameOf(f.Name), fieldName, StringComparison.Ordinal)) == true;
+    }
+
+    private GraphQLFieldDefinition? GetField(GraphQLObjectTypeDefinition obj, string fieldName)
+    {
+        return obj.Fields?.Items?.FirstOrDefault(f => string.Equals(NameOf(f.Name), fieldName, StringComparison.Ordinal));
+    }
+
+    private bool IsScalarOrEnum(string graphQlTypeName)
+    {
+        if (_scalarMap.ContainsKey(graphQlTypeName))
+            return true;
+
+        if (_definedScalars.Contains(graphQlTypeName))
+            return true;
+
+        return _definedEnums.Contains(ToClrTypeName(graphQlTypeName));
+    }
+
+    private GraphQLObjectTypeDefinition? FindObjectType(string typeName)
+    {
+        _objectTypes.TryGetValue(typeName, out GraphQLObjectTypeDefinition? result);
+        return result;
+    }
+
+    private static string BuildMethodParameterList(List<GraphQLInputValueDefinition> args)
+    {
+        if (args.Count == 0)
+            return string.Empty;
+
+        var parts = new List<string>(args.Count);
+
+        foreach (GraphQLInputValueDefinition arg in args)
+        {
+            string parameterType = MapGraphQlInputTypeStatic(arg.Type);
+            string parameterName = ToCamelCase(ToClrPropertyName(NameOf(arg.Name), "Arg"));
+            parts.Add($"{parameterType} {parameterName}");
+        }
+
+        return string.Join(", ", parts);
+    }
+
+    private static string BuildVariablesObjectInitializer(List<GraphQLInputValueDefinition> args)
+    {
+        if (args.Count == 0)
+            return "null";
+
+        return "new { " + string.Join(", ", args.Select(a =>
+        {
+            string parameterName = ToCamelCase(ToClrPropertyName(NameOf(a.Name), "Arg"));
+            return $"{parameterName} = {parameterName}";
+        })) + " }";
+    }
+
+    private static string BuildOperationVariableDefinitions(List<GraphQLInputValueDefinition> args)
+    {
+        if (args.Count == 0)
+            return string.Empty;
+
+        return string.Join(", ", args.Select(a =>
+        {
+            string argName = NameOf(a.Name);
+            string graphQlType = ToGraphQlTypeString(a.Type);
+            return $"${argName}: {graphQlType}";
+        }));
+    }
+
+    private static string BuildFieldArgumentList(List<GraphQLInputValueDefinition> args)
+    {
+        if (args.Count == 0)
+            return string.Empty;
+
+        return string.Join(", ", args.Select(a =>
+        {
+            string argName = NameOf(a.Name);
+            return $"{argName}: ${argName}";
+        }));
+    }
+
+    private GeneratedFile GenerateObjectType(GraphQLObjectTypeDefinition obj)
+    {
+        string typeName = ToClrTypeName(NameOf(obj.Name));
+        string? description = GetDescription(obj.Description);
+
+        var sb = new StringBuilder();
+        AppendHeader(sb);
+
+        var interfaces = obj.Interfaces?.Items?
+            .Select(i => ToClrTypeName(NameOf(i.Name)))
+            .Distinct(StringComparer.Ordinal)
+            .ToList() ?? [];
+
+        string inheritance = interfaces.Count > 0 ? " : " + string.Join(", ", interfaces) : string.Empty;
+
+        AppendDescription(sb, description, 0);
+        sb.Append("public sealed partial class ").Append(typeName).Append(inheritance).AppendLine();
+        sb.AppendLine("{");
+
+        if (obj.Fields?.Items is { Count: > 0 })
+        {
+            foreach (GraphQLFieldDefinition field in obj.Fields.Items)
+            {
+                string propertyType = MapOutputType(field.Type);
+                string propertyName = ToClrPropertyName(NameOf(field.Name), typeName);
+                string? fieldDescription = GetDescription(field.Description);
+
+                AppendDescription(sb, fieldDescription, 1);
+                sb.Append("    public ")
+                  .Append(propertyType)
+                  .Append(' ')
+                  .Append(propertyName)
+                  .Append(" { get; init; }");
+
+                if (ShouldInitializeCollection(field.Type, propertyType))
+                {
+                    sb.Append(" = [];");
+                }
+                else if (IsReferenceTypeNeedingNullForgiving(field.Type, propertyType))
+                {
+                    sb.Append(" = null!;");
+                }
+
+                sb.AppendLine();
+                sb.AppendLine();
+            }
+        }
+
+        sb.AppendLine("}");
+
+        return new GeneratedFile($"Types/Objects/{typeName}.cs", sb.ToString());
+    }
+
+    private GeneratedFile GenerateInputType(GraphQLInputObjectTypeDefinition input)
+    {
+        string typeName = ToClrTypeName(NameOf(input.Name));
+        string? description = GetDescription(input.Description);
+
+        var sb = new StringBuilder();
+        AppendHeader(sb);
+
+        AppendDescription(sb, description, 0);
+        sb.Append("public sealed partial class ").Append(typeName).AppendLine();
+        sb.AppendLine("{");
+
+        if (input.Fields?.Items is { Count: > 0 })
+        {
+            foreach (GraphQLInputValueDefinition field in input.Fields.Items)
+            {
+                string propertyType = MapInputType(field.Type);
+                string propertyName = ToClrPropertyName(NameOf(field.Name), typeName);
+                string? fieldDescription = GetDescription(field.Description);
+
+                AppendDescription(sb, fieldDescription, 1);
+                sb.Append("    public ")
+                  .Append(propertyType)
+                  .Append(' ')
+                  .Append(propertyName)
+                  .Append(" { get; init; }");
+
+                if (ShouldInitializeCollection(field.Type, propertyType))
+                {
+                    sb.Append(" = [];");
+                }
+                else if (IsReferenceTypeNeedingNullForgiving(field.Type, propertyType))
+                {
+                    sb.Append(" = null!;");
+                }
+
+                sb.AppendLine();
+                sb.AppendLine();
+            }
+        }
+
+        sb.AppendLine("}");
+
+        return new GeneratedFile($"Types/Inputs/{typeName}.cs", sb.ToString());
+    }
+
+    private GeneratedFile GenerateEnumType(GraphQLEnumTypeDefinition enm)
+    {
+        string typeName = ToClrTypeName(NameOf(enm.Name));
+        string? description = GetDescription(enm.Description);
+
+        var sb = new StringBuilder();
+        AppendHeader(sb);
+
+        AppendDescription(sb, description, 0);
+        sb.Append("public enum ").Append(typeName).AppendLine();
+        sb.AppendLine("{");
+
+        if (enm.Values?.Items is { Count: > 0 })
+        {
+            for (int i = 0; i < enm.Values.Items.Count; i++)
+            {
+                GraphQLEnumValueDefinition value = enm.Values.Items[i];
+                string memberName = ToClrEnumMemberName(NameOf(value.Name));
+                string? valueDescription = GetDescription(value.Description);
+
+                AppendDescription(sb, valueDescription, 1);
+                sb.Append("    ").Append(memberName);
+
+                if (i < enm.Values.Items.Count - 1)
+                    sb.Append(',');
+
+                sb.AppendLine();
+                sb.AppendLine();
+            }
+        }
+
+        sb.AppendLine("}");
+
+        return new GeneratedFile($"Types/Enums/{typeName}.cs", sb.ToString());
+    }
+
+    private GeneratedFile GenerateInterfaceType(GraphQLInterfaceTypeDefinition iface)
+    {
+        string typeName = ToClrTypeName(NameOf(iface.Name));
+        string? description = GetDescription(iface.Description);
+
+        var sb = new StringBuilder();
+        AppendHeader(sb);
+
+        AppendDescription(sb, description, 0);
+        sb.Append("public interface ").Append(typeName).AppendLine();
+        sb.AppendLine("{");
+
+        if (iface.Fields?.Items is { Count: > 0 })
+        {
+            foreach (GraphQLFieldDefinition field in iface.Fields.Items)
+            {
+                string propertyType = MapOutputType(field.Type);
+                string propertyName = ToClrPropertyName(NameOf(field.Name), typeName);
+                string? fieldDescription = GetDescription(field.Description);
+
+                AppendDescription(sb, fieldDescription, 1);
+                sb.Append("    ")
+                  .Append(propertyType)
+                  .Append(' ')
+                  .Append(propertyName)
+                  .Append(" { get; }")
+                  .AppendLine();
+
+                sb.AppendLine();
+            }
+        }
+
+        sb.AppendLine("}");
+
+        return new GeneratedFile($"Types/Interfaces/{typeName}.cs", sb.ToString());
+    }
+
+    private GeneratedFile GenerateUnionType(GraphQLUnionTypeDefinition union)
+    {
+        string typeName = ToClrTypeName(NameOf(union.Name));
+        string? description = GetDescription(union.Description);
+
+        var sb = new StringBuilder();
+        AppendHeader(sb);
+
+        AppendDescription(sb, description, 0);
+        sb.Append("public interface ").Append(typeName).AppendLine();
+        sb.AppendLine("{");
+        sb.AppendLine("}");
+
+        return new GeneratedFile($"Types/Unions/{typeName}.cs", sb.ToString());
+    }
+
+    private GeneratedFile GenerateScalarAlias(GraphQLScalarTypeDefinition scalar)
+    {
+        string typeName = ToClrTypeName(NameOf(scalar.Name));
+        string? description = GetDescription(scalar.Description);
+        string mappedType = MapNamedType(NameOf(scalar.Name), nullable: false);
+
+        var sb = new StringBuilder();
+        AppendHeader(sb);
+
+        AppendDescription(sb, description, 0);
+        sb.Append("global using ").Append(typeName).Append(" = ").Append(mappedType).AppendLine(";");
+
+        return new GeneratedFile($"Types/Scalars/{typeName}.global.cs", sb.ToString());
+    }
+
+    private GeneratedFile GenerateJsonContext(GraphQLDocument document)
+    {
+        var allTypes = new HashSet<string>(StringComparer.Ordinal);
+
+        foreach (ASTNode definition in document.Definitions)
+        {
+            switch (definition)
+            {
+                case GraphQLObjectTypeDefinition obj:
+                    if (!IsBuiltInRootType(NameOf(obj.Name)) || _config.EmitRootTypes)
+                        allTypes.Add(ToClrTypeName(NameOf(obj.Name)));
+                    break;
+
+                case GraphQLInputObjectTypeDefinition input:
+                    allTypes.Add(ToClrTypeName(NameOf(input.Name)));
+                    break;
+
+                case GraphQLEnumTypeDefinition enm:
+                    allTypes.Add(ToClrTypeName(NameOf(enm.Name)));
+                    break;
+            }
+        }
+
+        allTypes.Add("GraphQlError");
+
+        var sb = new StringBuilder();
+        AppendHeader(sb);
+
+        sb.AppendLine("using System.Text.Json.Serialization;");
+        sb.AppendLine();
+
+        sb.AppendLine("[JsonSourceGenerationOptions(");
+        sb.AppendLine("    PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,");
+        sb.AppendLine("    DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,");
+        sb.AppendLine("    WriteIndented = true)]");
+
+        foreach (string type in allTypes.OrderBy(static x => x, StringComparer.Ordinal))
+        {
+            sb.Append("[JsonSerializable(typeof(").Append(type).AppendLine("))]");
+            sb.Append("[JsonSerializable(typeof(GraphQlResponse<").Append(type).AppendLine(">))]");
+        }
+
+        sb.Append("public partial class ").Append(_config.JsonSerializerContextName).Append(" : JsonSerializerContext").AppendLine();
+        sb.AppendLine("{");
+        sb.AppendLine("}");
+
+        return new GeneratedFile($"Transport/{_config.JsonSerializerContextName}.cs", sb.ToString());
+    }
+
+    private GeneratedFile GenerateGraphQlRequestFile()
+    {
+        var sb = new StringBuilder();
+        AppendHeader(sb);
+
+        sb.AppendLine("using System.Text.Json.Serialization;");
+        sb.AppendLine();
+        sb.AppendLine("public sealed class GraphQlRequest");
+        sb.AppendLine("{");
+        sb.AppendLine("    [JsonPropertyName(\"query\")]");
+        sb.AppendLine("    public required string Query { get; init; }");
+        sb.AppendLine();
+        sb.AppendLine("    [JsonPropertyName(\"variables\")]");
+        sb.AppendLine("    public object? Variables { get; init; }");
+        sb.AppendLine();
+        sb.AppendLine("    [JsonPropertyName(\"operationName\")]");
+        sb.AppendLine("    public string? OperationName { get; init; }");
+        sb.AppendLine("}");
+
+        return new GeneratedFile("Transport/GraphQlRequest.cs", sb.ToString());
+    }
+
+    private GeneratedFile GenerateGraphQlErrorFile()
+    {
+        var sb = new StringBuilder();
+        AppendHeader(sb);
+
+        sb.AppendLine("using System.Collections.Generic;");
+        sb.AppendLine("using System.Text.Json.Serialization;");
+        sb.AppendLine();
+        sb.AppendLine("public sealed class GraphQlError");
+        sb.AppendLine("{");
+        sb.AppendLine("    [JsonPropertyName(\"message\")]");
+        sb.AppendLine("    public string? Message { get; init; }");
+        sb.AppendLine();
+        sb.AppendLine("    [JsonPropertyName(\"path\")]");
+        sb.AppendLine("    public List<object>? Path { get; init; }");
+        sb.AppendLine();
+        sb.AppendLine("    [JsonPropertyName(\"extensions\")]");
+        sb.AppendLine("    public Dictionary<string, object>? Extensions { get; init; }");
+        sb.AppendLine();
+        sb.AppendLine("    [JsonPropertyName(\"locations\")]");
+        sb.AppendLine("    public List<GraphQlErrorLocation>? Locations { get; init; }");
+        sb.AppendLine("}");
+        sb.AppendLine();
+        sb.AppendLine("public sealed class GraphQlErrorLocation");
+        sb.AppendLine("{");
+        sb.AppendLine("    [JsonPropertyName(\"line\")]");
+        sb.AppendLine("    public int Line { get; init; }");
+        sb.AppendLine();
+        sb.AppendLine("    [JsonPropertyName(\"column\")]");
+        sb.AppendLine("    public int Column { get; init; }");
+        sb.AppendLine("}");
+
+        return new GeneratedFile("Transport/GraphQlError.cs", sb.ToString());
+    }
+
+    private GeneratedFile GenerateGraphQlResponseFile()
+    {
+        var sb = new StringBuilder();
+        AppendHeader(sb);
+
+        sb.AppendLine("using System.Collections.Generic;");
+        sb.AppendLine("using System.Text.Json.Serialization;");
+        sb.AppendLine();
+        sb.AppendLine("public sealed class GraphQlResponse<T>");
+        sb.AppendLine("{");
+        sb.AppendLine("    [JsonPropertyName(\"data\")]");
+        sb.AppendLine("    public T? Data { get; init; }");
+        sb.AppendLine();
+        sb.AppendLine("    [JsonPropertyName(\"errors\")]");
+        sb.AppendLine("    public List<GraphQlError>? Errors { get; init; }");
+        sb.AppendLine();
+        sb.AppendLine("    public bool HasErrors => Errors is { Count: > 0 };");
+        sb.AppendLine("}");
+
+        return new GeneratedFile("Transport/GraphQlResponse.cs", sb.ToString());
+    }
+
+    private GeneratedFile GenerateIGraphQlClientFile()
+    {
+        var sb = new StringBuilder();
+        AppendHeader(sb);
+
+        sb.AppendLine("using System.Threading;");
+        sb.AppendLine("using System.Threading.Tasks;");
+        sb.AppendLine();
+        sb.AppendLine("public interface IGraphQlClient");
+        sb.AppendLine("{");
+        sb.AppendLine("    Task<GraphQlResponse<T>> ExecuteAsync<T>(");
+        sb.AppendLine("        string query,");
+        sb.AppendLine("        object? variables = null,");
+        sb.AppendLine("        CancellationToken cancellationToken = default);");
+        sb.AppendLine("}");
+
+        return new GeneratedFile("Transport/IGraphQlClient.cs", sb.ToString());
+    }
+
+    private GeneratedFile GenerateGraphQlHttpClientFile()
+    {
+        var sb = new StringBuilder();
+        AppendHeader(sb);
+
+        sb.AppendLine("using System;");
+        sb.AppendLine("using System.Net.Http;");
+        sb.AppendLine("using System.Net.Http.Json;");
+        sb.AppendLine("using System.Text.Json;");
+        sb.AppendLine("using System.Threading;");
+        sb.AppendLine("using System.Threading.Tasks;");
+        sb.AppendLine();
+        sb.AppendLine("public sealed class GraphQlHttpClient : IGraphQlClient");
+        sb.AppendLine("{");
+        sb.AppendLine("    private readonly HttpClient _httpClient;");
+        sb.AppendLine("    private readonly JsonSerializerOptions _serializerOptions;");
+        sb.AppendLine();
+        sb.AppendLine("    public GraphQlHttpClient(HttpClient httpClient, JsonSerializerOptions? serializerOptions = null)");
+        sb.AppendLine("    {");
+        sb.AppendLine("        _httpClient = httpClient;");
+        sb.AppendLine("        _serializerOptions = serializerOptions ?? new JsonSerializerOptions(JsonSerializerDefaults.Web);");
+        sb.AppendLine("    }");
+        sb.AppendLine();
+        sb.AppendLine("    public async Task<GraphQlResponse<T>> ExecuteAsync<T>(");
+        sb.AppendLine("        string query,");
+        sb.AppendLine("        object? variables = null,");
+        sb.AppendLine("        CancellationToken cancellationToken = default)");
+        sb.AppendLine("    {");
+        sb.AppendLine("        var request = new GraphQlRequest");
+        sb.AppendLine("        {");
+        sb.AppendLine("            Query = query,");
+        sb.AppendLine("            Variables = variables");
+        sb.AppendLine("        };");
+        sb.AppendLine();
+        sb.AppendLine("        using HttpResponseMessage response = await _httpClient.PostAsJsonAsync(string.Empty, request, _serializerOptions, cancellationToken).ConfigureAwait(false);");
+        sb.AppendLine("        response.EnsureSuccessStatusCode();");
+        sb.AppendLine();
+        sb.AppendLine("        GraphQlResponse<T>? payload = await response.Content.ReadFromJsonAsync<GraphQlResponse<T>>(_serializerOptions, cancellationToken).ConfigureAwait(false);");
+        sb.AppendLine("        return payload ?? throw new InvalidOperationException(\"GraphQL response body was null.\");");
+        sb.AppendLine("    }");
+        sb.AppendLine("}");
+
+        return new GeneratedFile("Transport/GraphQlHttpClient.cs", sb.ToString());
+    }
+
+    private string MapOutputType(GraphQLType type) => MapType(type, inputMode: false);
+
+    private string MapInputType(GraphQLType type) => MapType(type, inputMode: true);
+
+    private string MapType(GraphQLType type, bool inputMode)
+    {
+        return type switch
+        {
+            GraphQLNonNullType nonNull => MapNonNullType(nonNull.Type, inputMode),
+            GraphQLListType list => $"List<{MapType(list.Type, inputMode).TrimEnd('?')}>?",
+            GraphQLNamedType named => MapNamedType(NameOf(named.Name), nullable: true),
+            _ => "object?"
+        };
+    }
+
+    private string MapNonNullType(GraphQLType type, bool inputMode)
+    {
+        return type switch
+        {
+            GraphQLListType list => $"List<{MapType(list.Type, inputMode).TrimEnd('?')}>",
+            GraphQLNamedType named => MapNamedType(NameOf(named.Name), nullable: false),
+            GraphQLNonNullType nested => MapNonNullType(nested.Type, inputMode),
+            _ => "object"
+        };
+    }
+
+    private string MapNamedType(string graphQlTypeName, bool nullable)
+    {
+        string clrType;
+
+        if (_scalarMap.TryGetValue(graphQlTypeName, out string? mapped))
+        {
+            clrType = mapped;
+        }
+        else if (_definedScalars.Contains(graphQlTypeName))
+        {
+            clrType = "string";
+        }
+        else
+        {
+            clrType = ToClrTypeName(graphQlTypeName);
+        }
+
+        if (!nullable)
+            return clrType;
+
+        if (IsNonNullableValueType(clrType) || _definedEnums.Contains(clrType))
+            return clrType + '?';
+
+        return clrType + '?';
+    }
+
+    private static string MapGraphQlInputTypeStatic(GraphQLType type)
+    {
+        return type switch
+        {
+            GraphQLNonNullType nonNull => MapGraphQlInputNonNullTypeStatic(nonNull.Type),
+            GraphQLListType list => $"List<{MapGraphQlInputTypeStatic(list.Type).TrimEnd('?')}>?",
+            GraphQLNamedType named => MapKnownScalarToClr(NameOf(named.Name), nullable: true),
+            _ => "object?"
+        };
+    }
+
+    private static string MapGraphQlInputNonNullTypeStatic(GraphQLType type)
+    {
+        return type switch
+        {
+            GraphQLListType list => $"List<{MapGraphQlInputTypeStatic(list.Type).TrimEnd('?')}>",
+            GraphQLNamedType named => MapKnownScalarToClr(NameOf(named.Name), nullable: false),
+            GraphQLNonNullType nested => MapGraphQlInputNonNullTypeStatic(nested.Type),
+            _ => "object"
+        };
+    }
+
+    private static string MapKnownScalarToClr(string typeName, bool nullable)
+    {
+        string clrType = typeName switch
+        {
+            "String" => "string",
+            "ID" => "string",
+            "Int" => "int",
+            "Float" => "double",
+            "Boolean" => "bool",
+            "Date" => "DateOnly",
+            "DateTime" => "DateTimeOffset",
+            "DateTimeUtc" => "DateTimeOffset",
+            "Time" => "TimeOnly",
+            "Decimal" => "decimal",
+            "UUID" => "Guid",
+            "Guid" => "Guid",
+            "Long" => "long",
+            "Short" => "short",
+            "Byte" => "byte",
+            _ => ToClrTypeName(typeName)
+        };
+
+        if (!nullable)
+            return clrType;
+
+        if (IsNonNullableValueType(clrType))
+            return clrType + '?';
+
+        return clrType + '?';
+    }
+
+    private static string ToGraphQlTypeString(GraphQLType type)
+    {
+        return type switch
+        {
+            GraphQLNonNullType nonNull => ToGraphQlTypeString(nonNull.Type) + "!",
+            GraphQLListType list => "[" + ToGraphQlTypeString(list.Type) + "]",
+            GraphQLNamedType named => NameOf(named.Name),
+            _ => "String"
+        };
+    }
+
+    private static string GetNamedType(GraphQLType type)
+    {
+        return type switch
+        {
+            GraphQLNonNullType nonNull => GetNamedType(nonNull.Type),
+            GraphQLListType list => GetNamedType(list.Type),
+            GraphQLNamedType named => NameOf(named.Name),
+            _ => "Object"
+        };
+    }
+
+    private static bool IsNonNullableValueType(string clrType)
+    {
+        return clrType is
+            "bool" or
+            "byte" or
+            "sbyte" or
+            "short" or
+            "ushort" or
+            "int" or
+            "uint" or
+            "long" or
+            "ulong" or
+            "nint" or
+            "nuint" or
+            "float" or
+            "double" or
+            "decimal" or
+            "char" or
+            "Guid" or
+            "DateOnly" or
+            "TimeOnly" or
+            "DateTime" or
+            "DateTimeOffset" or
+            "TimeSpan";
+    }
+
+    private static bool ShouldInitializeCollection(GraphQLType type, string propertyType)
+    {
+        return propertyType.StartsWith("List<", StringComparison.Ordinal) && type is GraphQLNonNullType;
+    }
+
+    private bool IsReferenceTypeNeedingNullForgiving(GraphQLType type, string propertyType)
+    {
+        if (type is not GraphQLNonNullType)
+            return false;
+
+        if (propertyType.StartsWith("List<", StringComparison.Ordinal))
+            return false;
+
+        if (propertyType.EndsWith("?", StringComparison.Ordinal))
+            return false;
+
+        if (IsNonNullableValueType(propertyType))
+            return false;
+
+        if (_definedEnums.Contains(propertyType))
+            return false;
+
+        return true;
+    }
+
+    private static Dictionary<string, string> CreateScalarMap(GeneratorConfig config)
+    {
+        var map = new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            ["String"] = "string",
+            ["ID"] = config.IdClrType,
+            ["Int"] = "int",
+            ["Float"] = "double",
+            ["Boolean"] = "bool",
+            ["Date"] = "DateOnly",
+            ["DateTime"] = "DateTimeOffset",
+            ["DateTimeUtc"] = "DateTimeOffset",
+            ["Time"] = "TimeOnly",
+            ["Decimal"] = "decimal",
+            ["UUID"] = "Guid",
+            ["Guid"] = "Guid",
+            ["Long"] = "long",
+            ["Short"] = "short",
+            ["Byte"] = "byte",
+            ["Any"] = "object",
+            ["JSON"] = "string",
+            ["JSONObject"] = "string",
+            ["URI"] = "Uri",
+            ["Url"] = "Uri",
+            ["URL"] = "Uri",
+
+            ["HTML"] = "string",
+            ["FormattedString"] = "string",
+            ["UnsignedInt64"] = "ulong",
+            ["BigInt"] = "long",
+            ["StorefrontID"] = "string",
+            ["Color"] = "string",
+            ["UtcOffset"] = "string",
+            ["ARN"] = "string"
+        };
+
+        if (config.ScalarMappings is not null)
+        {
+            foreach ((string key, string value) in config.ScalarMappings)
+            {
+                map[key] = value;
+            }
+        }
+
+        return map;
+    }
+
+    private void AppendHeader(StringBuilder sb)
+    {
+        sb.AppendLine("// <auto-generated />");
+        sb.AppendLine("#nullable enable");
+
+        if (_config.GlobalUsings?.Count > 0)
+        {
+            foreach (string ns in _config.GlobalUsings.Distinct(StringComparer.Ordinal))
+            {
+                sb.Append("using ").Append(ns).AppendLine(";");
+            }
+
+            sb.AppendLine();
+        }
+
+        if (!string.IsNullOrWhiteSpace(_config.Namespace))
+        {
+            sb.Append("namespace ").Append(_config.Namespace).AppendLine(";");
+            sb.AppendLine();
+        }
+    }
+
+    private static void AppendDescription(StringBuilder sb, string? description, int indentLevel)
+    {
+        if (string.IsNullOrWhiteSpace(description))
+            return;
+
+        string indent = new(' ', indentLevel * 4);
+
+        sb.Append(indent).AppendLine("/// <summary>");
+
+        foreach (string line in description.Split('\n'))
+        {
+            sb.Append(indent).Append("/// ").AppendLine(EscapeXml(line.TrimEnd('\r')));
+        }
+
+        sb.Append(indent).AppendLine("/// </summary>");
+    }
+
+    private static string EscapeXml(string value)
+    {
+        return value
+            .Replace("&", "&amp;", StringComparison.Ordinal)
+            .Replace("<", "&lt;", StringComparison.Ordinal)
+            .Replace(">", "&gt;", StringComparison.Ordinal);
+    }
+
+    private static string? GetDescription(GraphQLDescription? description)
+    {
+        return description?.Value.ToString();
+    }
+
+    private static bool IsBuiltInRootType(string name)
+    {
+        return name is "Query" or "Mutation" or "Subscription" or "QueryRoot";
+    }
+
+    private static string ToClrTypeName(string name)
+    {
+        string sanitized = SanitizeIdentifier(name);
+        return ToPascalCase(sanitized);
+    }
+
+    private static string ToClrPropertyName(string name, string containingTypeName)
+    {
+        string sanitized = SanitizeIdentifier(name);
+        string propertyName = ToPascalCase(sanitized);
+
+        if (string.Equals(propertyName, containingTypeName, StringComparison.Ordinal))
+            propertyName += "Value";
+
+        return propertyName;
+    }
+
+    private static string ToOperationMethodName(string fieldName, string operationKind)
+    {
+        string clr = ToClrTypeName(fieldName);
+
+        if (operationKind.Equals("Query", StringComparison.Ordinal))
+            return "Get" + clr + "Async";
+
+        if (operationKind.Equals("Mutation", StringComparison.Ordinal))
+            return clr + "Async";
+
+        return clr + "Async";
+    }
+
+    private static string ToClrEnumMemberName(string name)
+    {
+        string sanitized = SanitizeIdentifier(name);
+
+        if (char.IsDigit(sanitized[0]))
+            sanitized = "_" + sanitized;
+
+        return ToPascalCase(sanitized);
+    }
+
+    private static string SanitizeIdentifier(string value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+            return "_";
+
+        var sb = new StringBuilder(value.Length);
+
+        foreach (char c in value)
+        {
+            if (char.IsLetterOrDigit(c) || c == '_')
+                sb.Append(c);
+            else
+                sb.Append('_');
+        }
+
+        string result = sb.ToString();
+
+        if (result.Length == 0)
+            return "_";
+
+        if (char.IsDigit(result[0]))
+            result = "_" + result;
+
+        if (CSharpKeywords.Contains(result))
+            result = "@" + result;
+
+        return result;
+    }
+
+    private static string ToPascalCase(string value)
+    {
+        if (string.IsNullOrEmpty(value))
+            return value;
+
+        bool hasAtPrefix = value[0] == '@';
+        string core = hasAtPrefix ? value[1..] : value;
+
+        string[] parts = core.Split('_', StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length == 0)
+            return hasAtPrefix ? "@_" : "_";
+
+        var sb = new StringBuilder(core.Length);
+
+        foreach (string part in parts)
+        {
+            if (part.Length == 0)
+                continue;
+
+            if (part.Length == 1)
+            {
+                sb.Append(char.ToUpperInvariant(part[0]));
+                continue;
+            }
+
+            sb.Append(char.ToUpperInvariant(part[0]));
+            sb.Append(part.AsSpan(1));
+        }
+
+        string result = sb.ToString();
+        return hasAtPrefix ? "@" + result : result;
+    }
+
+    private static string ToCamelCase(string value)
+    {
+        if (string.IsNullOrEmpty(value))
+            return value;
+
+        if (value[0] == '@')
+            value = value[1..];
+
+        if (value.Length == 1)
+            return char.ToLowerInvariant(value[0]).ToString();
+
+        return char.ToLowerInvariant(value[0]) + value[1..];
+    }
+
+    private static string NameOf(GraphQLName name)
+    {
+        return name.Value.ToString();
+    }
+
+    private static readonly HashSet<string> CSharpKeywords = new(StringComparer.Ordinal)
+    {
+        "abstract", "as", "base", "bool", "break", "byte", "case", "catch", "char", "checked",
+        "class", "const", "continue", "decimal", "default", "delegate", "do", "double", "else",
+        "enum", "event", "explicit", "extern", "false", "finally", "fixed", "float", "for",
+        "foreach", "goto", "if", "implicit", "in", "int", "interface", "internal", "is", "lock",
+        "long", "namespace", "new", "null", "object", "operator", "out", "override", "params",
+        "private", "protected", "public", "readonly", "ref", "return", "sbyte", "sealed",
+        "short", "sizeof", "stackalloc", "static", "string", "struct", "switch", "this", "throw",
+        "true", "try", "typeof", "uint", "ulong", "unchecked", "unsafe", "ushort", "using",
+        "virtual", "void", "volatile", "while"
+    };
+}
+Replace your records/config with these
+sealed record GeneratedFile(string RelativePath, string Content);
+
+sealed record GenerationResult(
+    List<GeneratedFile> Files,
+    int ObjectCount,
+    int InputCount,
+    int EnumCount,
+    int InterfaceCount,
+    int UnionCount,
+    int ScalarCount,
+    int OperationFileCount);
+
+sealed class GeneratorConfig
+{
+    public required string SchemaPath { get; init; }
+    public required string OutputDirectory { get; init; }
+    public required string Namespace { get; init; }
+
+    public string IdClrType { get; init; } = "string";
+    public bool EmitRootTypes { get; init; } = true;
+    public bool EmitScalarAliases { get; init; } = false;
+    public bool EmitJsonSerializerContext { get; init; } = true;
+    public bool EmitOperationClients { get; init; } = true;
+    public string JsonSerializerContextName { get; init; } = "GraphQlJsonContext";
+
+    public string QueryRootTypeName { get; init; } = "Query";
+    public string MutationRootTypeName { get; init; } = "Mutation";
+    public int MaxSelectionDepth { get; init; } = 2;
+
+    public List<string>? GlobalUsings { get; init; }
+    public Dictionary<string, string>? ScalarMappings { get; init; }
+}
+Update your console summary output
+
+Change:
+
+Console.WriteLine($"Scalars: {result.ScalarCount}");
+
+to:
+
+Console.WriteLine($"Scalars: {result.ScalarCount}");
+Console.WriteLine($"Operation files: {result.OperationFileCount}");
+What this now generates
+
+You’ll get output like:
+
+Generated/
+  Types/
+    Objects/
+      Product.cs
+      Article.cs
+    Inputs/
+      ArticleCreateInput.cs
+    Enums/
+      ProductStatus.cs
+    Interfaces/
+      Node.cs
+    Unions/
+      Media.cs
+    Scalars/
+      Url.global.cs
+  Transport/
+    GraphQlRequest.cs
+    GraphQlError.cs
+    GraphQlResponse.cs
+    IGraphQlClient.cs
+    GraphQlHttpClient.cs
+    GraphQlJsonContext.cs
+  Clients/
+    Queries/
+      QueryClient.cs
+    Mutations/
+      MutationClient.cs
+What the generated methods look like
+
+Example generated query method:
+
+public Task<GraphQlResponse<Product?>> GetProductAsync(string id, CancellationToken cancellationToken = default)
+
+Example generated mutation method:
+
+public Task<GraphQlResponse<ArticleCreatePayload?>> ArticleCreateAsync(ArticleCreateInput article, CancellationToken cancellationToken = default)
+
+And internally they send a GraphQL document string with auto-generated selections.
+
+Important caveats
+
+This is good, but still not perfect.
+
+A few things you’ll probably want next:
+
+1. Better method names
+
+Right now GetProductAsync / ArticleCreateAsync are fine, but you may later want special naming rules.
+
+2. Result envelope unwrapping
+
+Right now the response type is:
+
+GraphQlResponse<Product?>
+
+But GraphQL actually returns:
+
+{
+  "data": {
+    "product": { ... }
+  }
+}
+
+So the truly correct generated model is a wrapper like:
+
+public sealed class GetProductResult
+{
+    public Product? Product { get; init; }
+}
+
+That is the next thing I’d add.
+
+3. Per-operation request/response DTOs
+
+That makes the generated SDK much more correct.
+
+4. Better connection handling
+
+The heuristic here is decent, but Shopify connections get fancy.
+
+What I recommend next
+
+The very next improvement should be:
+
+generate a response wrapper type per operation
+
+use that wrapper in the client method
+
+So instead of:
+
+Task<GraphQlResponse<Product?>>
+
+you generate:
+
+public sealed class GetProductResponseData
+{
+    public Product? Product { get; init; }
+}
+
+and the method becomes:
+
+Task<GraphQlResponse<GetProductResponseData>>
+
+That is much more correct GraphQL-wise.
+
+One more important note about your earlier parser issue
+
+You previously hit the ROM / StringValue issue.
+
+That’s why in the code above I switched all name access to:
+
+name.Value.ToString()
+
+instead of:
+
+name.StringValue
+
+That should be much safer with the newer GraphQLParser versions.
+
+If you want, I’ll do the next pass and give you the response-wrapper generation too, so the generated methods are structurally correct for real GraphQL responses.
+
+yes give me response wrapper types per operation
+
+Yes — that’s the right next step.
+
+GraphQL responses come back as:
+
+{
+  "data": {
+    "product": { ... }
+  },
+  "errors": []
+}
+
+So the generated generic should be:
+
+GraphQlResponse<GetProductData>
+
+not:
+
+GraphQlResponse<Product?>
+What to change
+
+You need to:
+
+generate a per-operation *Data wrapper type
+
+have each client method return GraphQlResponse<ThatWrapper>
+
+keep the wrapper property named after the root field
+
+Replace your operation generation with this version
+Update GenerateOperationFiles()
+
+Replace it with:
+
+private IReadOnlyList<GeneratedFile> GenerateOperationFiles()
+{
+    var files = new List<GeneratedFile>();
+
+    GraphQLObjectTypeDefinition? queryRoot = FindObjectType(_config.QueryRootTypeName);
+    GraphQLObjectTypeDefinition? mutationRoot = FindObjectType(_config.MutationRootTypeName);
+
+    if (queryRoot is not null)
+    {
+        files.AddRange(GenerateOperationArtifacts(queryRoot, "Query", "Queries"));
+    }
+
+    if (mutationRoot is not null)
+    {
+        files.AddRange(GenerateOperationArtifacts(mutationRoot, "Mutation", "Mutations"));
+    }
+
+    return files;
+}
+Add this new method
+private IReadOnlyList<GeneratedFile> GenerateOperationArtifacts(GraphQLObjectTypeDefinition rootType, string classPrefix, string folderName)
+{
+    var files = new List<GeneratedFile>();
+
+    var clientSb = new StringBuilder();
+    AppendHeader(clientSb);
+
+    clientSb.AppendLine("using System.Threading;");
+    clientSb.AppendLine("using System.Threading.Tasks;");
+    clientSb.AppendLine();
+
+    string clientName = $"{classPrefix}Client";
+
+    AppendDescription(clientSb, $"Generated GraphQL {classPrefix.ToLowerInvariant()} client.", 0);
+    clientSb.Append("public sealed partial class ").Append(clientName).AppendLine();
+    clientSb.AppendLine("{");
+    clientSb.AppendLine("    private readonly IGraphQlClient _graphQlClient;");
+    clientSb.AppendLine();
+    clientSb.Append("    public ").Append(clientName).AppendLine("(IGraphQlClient graphQlClient)");
+    clientSb.AppendLine("    {");
+    clientSb.AppendLine("        _graphQlClient = graphQlClient;");
+    clientSb.AppendLine("    }");
+    clientSb.AppendLine();
+
+    if (rootType.Fields?.Items is { Count: > 0 })
+    {
+        foreach (GraphQLFieldDefinition field in rootType.Fields.Items)
+        {
+            string fieldName = NameOf(field.Name);
+            string methodName = ToOperationMethodName(fieldName, classPrefix);
+            string wrapperTypeName = methodName + "Data";
+
+            files.Add(GenerateOperationResponseWrapper(field, wrapperTypeName, folderName));
+            AppendGeneratedOperationMethod(clientSb, field, classPrefix, wrapperTypeName);
+        }
+    }
+
+    clientSb.AppendLine("}");
+
+    files.Add(new GeneratedFile($"Clients/{folderName}/{clientName}.cs", clientSb.ToString()));
+
+    return files;
+}
+Replace AppendGeneratedOperationMethod(...)
+
+Replace your existing version with this one:
+
+private void AppendGeneratedOperationMethod(StringBuilder sb, GraphQLFieldDefinition field, string operationKind, string wrapperTypeName)
+{
+    string fieldName = NameOf(field.Name);
+    string methodName = ToOperationMethodName(fieldName, operationKind);
+    string selectionSet = BuildSelectionSet(field.Type, _config.MaxSelectionDepth);
+
+    var args = field.Arguments?.Items?.ToList() ?? [];
+    string parameterList = BuildMethodParameterList(args);
+    string variableDefinitions = BuildOperationVariableDefinitions(args);
+    string fieldArguments = BuildFieldArgumentList(args);
+
+    string gqlOperationType = operationKind.Equals("Mutation", StringComparison.Ordinal) ? "mutation" : "query";
+
+    sb.Append("    public Task<GraphQlResponse<")
+      .Append(wrapperTypeName)
+      .Append(">> ")
+      .Append(methodName)
+      .Append('(');
+
+    if (parameterList.Length > 0)
+        sb.Append(parameterList).Append(", ");
+
+    sb.AppendLine("CancellationToken cancellationToken = default)");
+    sb.AppendLine("    {");
+
+    sb.Append("        const string query = @\"")
+      .Append(gqlOperationType)
+      .Append(' ')
+      .Append(methodName);
+
+    if (variableDefinitions.Length > 0)
+        sb.Append('(').Append(variableDefinitions).Append(')');
+
+    sb.Append(" { ")
+      .Append(fieldName);
+
+    if (fieldArguments.Length > 0)
+        sb.Append('(').Append(fieldArguments).Append(')');
+
+    sb.Append(' ');
+
+    if (!string.IsNullOrWhiteSpace(selectionSet))
+        sb.Append(selectionSet).Append(' ');
+
+    sb.Append("}\";")
+      .AppendLine();
+
+    if (args.Count == 0)
+    {
+        sb.AppendLine("        object? variables = null;");
+    }
+    else
+    {
+        sb.AppendLine("        object variables = new");
+        sb.AppendLine("        {");
+
+        for (int i = 0; i < args.Count; i++)
+        {
+            GraphQLInputValueDefinition arg = args[i];
+            string argName = NameOf(arg.Name);
+            string clrArgName = ToCamelCase(ToClrPropertyName(argName, "Arg"));
+
+            sb.Append("            ").Append(clrArgName).Append(" = ").Append(clrArgName);
+
+            if (i < args.Count - 1)
+                sb.Append(',');
+
+            sb.AppendLine();
+        }
+
+        sb.AppendLine("        };");
+    }
+
+    sb.Append("        return _graphQlClient.ExecuteAsync<")
+      .Append(wrapperTypeName)
+      .Append(">(query, variables, cancellationToken);")
+      .AppendLine();
+
+    sb.AppendLine("    }");
+    sb.AppendLine();
+}
+Add the response wrapper generator
+private GeneratedFile GenerateOperationResponseWrapper(GraphQLFieldDefinition field, string wrapperTypeName, string folderName)
+{
+    string fieldName = NameOf(field.Name);
+    string fieldClrType = MapOutputType(field.Type);
+    string propertyName = ToClrPropertyName(fieldName, wrapperTypeName);
+    string? description = GetDescription(field.Description);
+
+    var sb = new StringBuilder();
+    AppendHeader(sb);
+
+    AppendDescription(sb, $"Response data wrapper for the '{fieldName}' GraphQL operation.", 0);
+    sb.Append("public sealed partial class ").Append(wrapperTypeName).AppendLine();
+    sb.AppendLine("{");
+
+    AppendDescription(sb, description, 1);
+    sb.Append("    public ")
+      .Append(fieldClrType)
+      .Append(' ')
+      .Append(propertyName)
+      .Append(" { get; init; }");
+
+    if (ShouldInitializeCollection(field.Type, fieldClrType))
+    {
+        sb.Append(" = [];");
+    }
+    else if (IsReferenceTypeNeedingNullForgiving(field.Type, fieldClrType))
+    {
+        sb.Append(" = null!;");
+    }
+
+    sb.AppendLine();
+    sb.AppendLine("}");
+
+    return new GeneratedFile($"Operations/{folderName}/{wrapperTypeName}.cs", sb.ToString());
+}
+Json context also needs these wrapper types
+
+Your serializer context must know about them.
+
+Replace GenerateJsonContext(...) with this version
+private GeneratedFile GenerateJsonContext(GraphQLDocument document)
+{
+    var allTypes = new HashSet<string>(StringComparer.Ordinal);
+
+    foreach (ASTNode definition in document.Definitions)
+    {
+        switch (definition)
+        {
+            case GraphQLObjectTypeDefinition obj:
+                if (!IsBuiltInRootType(NameOf(obj.Name)) || _config.EmitRootTypes)
+                    allTypes.Add(ToClrTypeName(NameOf(obj.Name)));
+                break;
+
+            case GraphQLInputObjectTypeDefinition input:
+                allTypes.Add(ToClrTypeName(NameOf(input.Name)));
+                break;
+
+            case GraphQLEnumTypeDefinition enm:
+                allTypes.Add(ToClrTypeName(NameOf(enm.Name)));
+                break;
+        }
+    }
+
+    allTypes.Add("GraphQlError");
+    allTypes.Add("GraphQlErrorLocation");
+
+    GraphQLObjectTypeDefinition? queryRoot = FindObjectType(_config.QueryRootTypeName);
+    GraphQLObjectTypeDefinition? mutationRoot = FindObjectType(_config.MutationRootTypeName);
+
+    if (queryRoot?.Fields?.Items is { Count: > 0 })
+    {
+        foreach (GraphQLFieldDefinition field in queryRoot.Fields.Items)
+        {
+            string wrapperTypeName = ToOperationMethodName(NameOf(field.Name), "Query") + "Data";
+            allTypes.Add(wrapperTypeName);
+        }
+    }
+
+    if (mutationRoot?.Fields?.Items is { Count: > 0 })
+    {
+        foreach (GraphQLFieldDefinition field in mutationRoot.Fields.Items)
+        {
+            string wrapperTypeName = ToOperationMethodName(NameOf(field.Name), "Mutation") + "Data";
+            allTypes.Add(wrapperTypeName);
+        }
+    }
+
+    var sb = new StringBuilder();
+    AppendHeader(sb);
+
+    sb.AppendLine("using System.Text.Json.Serialization;");
+    sb.AppendLine();
+
+    sb.AppendLine("[JsonSourceGenerationOptions(");
+    sb.AppendLine("    PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,");
+    sb.AppendLine("    DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,");
+    sb.AppendLine("    WriteIndented = true)]");
+
+    foreach (string type in allTypes.OrderBy(static x => x, StringComparer.Ordinal))
+    {
+        sb.Append("[JsonSerializable(typeof(").Append(type).AppendLine("))]");
+        sb.Append("[JsonSerializable(typeof(GraphQlResponse<").Append(type).AppendLine(">))]");
+    }
+
+    sb.Append("public partial class ").Append(_config.JsonSerializerContextName).Append(" : JsonSerializerContext").AppendLine();
+    sb.AppendLine("{");
+    sb.AppendLine("}");
+
+    return new GeneratedFile($"Transport/{_config.JsonSerializerContextName}.cs", sb.ToString());
+}
+Example of what this generates
+
+For a schema field like:
+
+type Query {
+  product(id: ID!): Product
+}
+
+you’ll now generate:
+
+wrapper
+public sealed partial class GetProductAsyncData
+{
+    public Product? Product { get; init; }
+}
+client method
+public Task<GraphQlResponse<GetProductAsyncData>> GetProductAsync(string id, CancellationToken cancellationToken = default)
+{
+    const string query = @"query GetProductAsync($id: ID!) { product(id: $id) { id title handle } }";
+
+    object variables = new
+    {
+        id = id
+    };
+
+    return _graphQlClient.ExecuteAsync<GetProductAsyncData>(query, variables, cancellationToken);
+}
+
+That is structurally correct for GraphQL.
+
+One naming improvement I strongly recommend
+
+Right now the wrapper name becomes:
+
+GetProductAsyncData
+
+That works, but it’s ugly.
+
+You should strip the Async suffix when generating wrapper types.
+
+Add this helper
+private static string ToOperationDataTypeName(string fieldName, string operationKind)
+{
+    string methodName = ToOperationMethodName(fieldName, operationKind);
+
+    if (methodName.EndsWith("Async", StringComparison.Ordinal))
+        methodName = methodName[..^5];
+
+    return methodName + "Data";
+}
+Then in GenerateOperationArtifacts(...)
+
+Change:
+
+string wrapperTypeName = methodName + "Data";
+
+to:
+
+string wrapperTypeName = ToOperationDataTypeName(fieldName, classPrefix);
+And in GenerateJsonContext(...)
+
+Change:
+
+string wrapperTypeName = ToOperationMethodName(NameOf(field.Name), "Query") + "Data";
+
+to:
+
+string wrapperTypeName = ToOperationDataTypeName(NameOf(field.Name), "Query");
+
+and:
+
+string wrapperTypeName = ToOperationMethodName(NameOf(field.Name), "Mutation") + "Data";
+
+to:
+
+string wrapperTypeName = ToOperationDataTypeName(NameOf(field.Name), "Mutation");
+That gives you nicer generated types
+
+Instead of:
+
+GetProductAsyncData
+
+you get:
+
+GetProductData
+
+and:
+
+ArticleCreateData
+Optional next improvement
+
+The next thing after this should be per-operation convenience accessors, like:
+
+public async Task<Product?> GetProductValueAsync(string id, CancellationToken cancellationToken = default)
+{
+    GraphQlResponse<GetProductData> response = await GetProductAsync(id, cancellationToken).ConfigureAwait(false);
+    return response.Data?.Product;
+}
+
+That gives a nicer SDK surface while still preserving the real GraphQL envelope.
+
+If you want, I’ll give you that next and also clean up the operation naming so Shopify root fields generate better C# method names.
+
+please go ahead
+
+Add both:
+
+nicer operation data type names, and
+
+convenience value methods that unwrap response.Data?.RootField.
+
+Below are the exact pieces to add/change.
+
+1. Add better naming helpers
+
+Put these near your other naming helpers:
+
+private static string ToOperationDataTypeName(string fieldName, string operationKind)
+{
+    string methodName = ToOperationMethodName(fieldName, operationKind);
+
+    if (methodName.EndsWith("Async", StringComparison.Ordinal))
+        methodName = methodName[..^5];
+
+    return methodName + "Data";
+}
+
+private static string ToOperationValueMethodName(string fieldName, string operationKind)
+{
+    string methodName = ToOperationMethodName(fieldName, operationKind);
+
+    if (methodName.EndsWith("Async", StringComparison.Ordinal))
+        methodName = methodName[..^5];
+
+    return methodName + "ValueAsync";
+}
+2. Update operation artifact generation
+
+Replace your GenerateOperationArtifacts(...) with this:
+
+private IReadOnlyList<GeneratedFile> GenerateOperationArtifacts(GraphQLObjectTypeDefinition rootType, string classPrefix, string folderName)
+{
+    var files = new List<GeneratedFile>();
+
+    var clientSb = new StringBuilder();
+    AppendHeader(clientSb);
+
+    clientSb.AppendLine("using System.Threading;");
+    clientSb.AppendLine("using System.Threading.Tasks;");
+    clientSb.AppendLine();
+
+    string clientName = $"{classPrefix}Client";
+
+    AppendDescription(clientSb, $"Generated GraphQL {classPrefix.ToLowerInvariant()} client.", 0);
+    clientSb.Append("public sealed partial class ").Append(clientName).AppendLine();
+    clientSb.AppendLine("{");
+    clientSb.AppendLine("    private readonly IGraphQlClient _graphQlClient;");
+    clientSb.AppendLine();
+    clientSb.Append("    public ").Append(clientName).AppendLine("(IGraphQlClient graphQlClient)");
+    clientSb.AppendLine("    {");
+    clientSb.AppendLine("        _graphQlClient = graphQlClient;");
+    clientSb.AppendLine("    }");
+    clientSb.AppendLine();
+
+    if (rootType.Fields?.Items is { Count: > 0 })
+    {
+        foreach (GraphQLFieldDefinition field in rootType.Fields.Items)
+        {
+            string fieldName = NameOf(field.Name);
+            string wrapperTypeName = ToOperationDataTypeName(fieldName, classPrefix);
+
+            files.Add(GenerateOperationResponseWrapper(field, wrapperTypeName, folderName));
+            AppendGeneratedOperationMethod(clientSb, field, classPrefix, wrapperTypeName);
+            AppendGeneratedOperationValueMethod(clientSb, field, classPrefix, wrapperTypeName);
+        }
+    }
+
+    clientSb.AppendLine("}");
+
+    files.Add(new GeneratedFile($"Clients/{folderName}/{clientName}.cs", clientSb.ToString()));
+
+    return files;
+}
+3. Replace AppendGeneratedOperationMethod(...)
+
+Use this version:
+
+private void AppendGeneratedOperationMethod(StringBuilder sb, GraphQLFieldDefinition field, string operationKind, string wrapperTypeName)
+{
+    string fieldName = NameOf(field.Name);
+    string methodName = ToOperationMethodName(fieldName, operationKind);
+    string selectionSet = BuildSelectionSet(field.Type, _config.MaxSelectionDepth);
+
+    var args = field.Arguments?.Items?.ToList() ?? [];
+    string parameterList = BuildMethodParameterList(args);
+    string variableDefinitions = BuildOperationVariableDefinitions(args);
+    string fieldArguments = BuildFieldArgumentList(args);
+
+    string gqlOperationType = operationKind.Equals("Mutation", StringComparison.Ordinal) ? "mutation" : "query";
+
+    AppendDescription(sb, $"Executes the GraphQL {gqlOperationType} '{fieldName}'.", 1);
+    sb.Append("    public Task<GraphQlResponse<")
+      .Append(wrapperTypeName)
+      .Append(">> ")
+      .Append(methodName)
+      .Append('(');
+
+    if (parameterList.Length > 0)
+        sb.Append(parameterList).Append(", ");
+
+    sb.AppendLine("CancellationToken cancellationToken = default)");
+    sb.AppendLine("    {");
+
+    sb.Append("        const string query = @\"")
+      .Append(gqlOperationType)
+      .Append(' ')
+      .Append(methodName);
+
+    if (variableDefinitions.Length > 0)
+        sb.Append('(').Append(variableDefinitions).Append(')');
+
+    sb.Append(" { ")
+      .Append(fieldName);
+
+    if (fieldArguments.Length > 0)
+        sb.Append('(').Append(fieldArguments).Append(')');
+
+    sb.Append(' ');
+
+    if (!string.IsNullOrWhiteSpace(selectionSet))
+        sb.Append(selectionSet).Append(' ');
+
+    sb.Append("}\";")
+      .AppendLine();
+
+    if (args.Count == 0)
+    {
+        sb.AppendLine("        object? variables = null;");
+    }
+    else
+    {
+        sb.AppendLine("        object variables = new");
+        sb.AppendLine("        {");
+
+        for (int i = 0; i < args.Count; i++)
+        {
+            GraphQLInputValueDefinition arg = args[i];
+            string argName = NameOf(arg.Name);
+            string clrArgName = ToCamelCase(ToClrPropertyName(argName, "Arg"));
+
+            sb.Append("            ").Append(clrArgName).Append(" = ").Append(clrArgName);
+
+            if (i < args.Count - 1)
+                sb.Append(',');
+
+            sb.AppendLine();
+        }
+
+        sb.AppendLine("        };");
+    }
+
+    sb.Append("        return _graphQlClient.ExecuteAsync<")
+      .Append(wrapperTypeName)
+      .Append(">(query, variables, cancellationToken);")
+      .AppendLine();
+
+    sb.AppendLine("    }");
+    sb.AppendLine();
+}
+4. Add the value-unwrapping method generator
+
+Add this whole method:
+
+private void AppendGeneratedOperationValueMethod(StringBuilder sb, GraphQLFieldDefinition field, string operationKind, string wrapperTypeName)
+{
+    string fieldName = NameOf(field.Name);
+    string methodName = ToOperationValueMethodName(fieldName, operationKind);
+    string executeMethodName = ToOperationMethodName(fieldName, operationKind);
+    string resultClrType = MapOutputType(field.Type);
+    string wrapperPropertyName = ToClrPropertyName(fieldName, wrapperTypeName);
+
+    var args = field.Arguments?.Items?.ToList() ?? [];
+    string parameterList = BuildMethodParameterList(args);
+    string argumentForwarding = BuildArgumentForwardingList(args);
+
+    AppendDescription(sb, $"Executes the operation and returns only the '{fieldName}' value from the GraphQL data envelope.", 1);
+    sb.Append("    public async Task<")
+      .Append(resultClrType)
+      .Append("> ")
+      .Append(methodName)
+      .Append('(');
+
+    if (parameterList.Length > 0)
+        sb.Append(parameterList).Append(", ");
+
+    sb.AppendLine("CancellationToken cancellationToken = default)");
+    sb.AppendLine("    {");
+
+    sb.Append("        GraphQlResponse<")
+      .Append(wrapperTypeName)
+      .Append("> response = await ")
+      .Append(executeMethodName)
+      .Append('(');
+
+    if (argumentForwarding.Length > 0)
+        sb.Append(argumentForwarding).Append(", ");
+
+    sb.Append("cancellationToken).ConfigureAwait(false);")
+      .AppendLine();
+
+    sb.Append("        return response.Data?.")
+      .Append(wrapperPropertyName)
+      .AppendLine(";");
+
+    sb.AppendLine("    }");
+    sb.AppendLine();
+}
+5. Add argument forwarding helper
+
+Add this helper:
+
+private static string BuildArgumentForwardingList(List<GraphQLInputValueDefinition> args)
+{
+    if (args.Count == 0)
+        return string.Empty;
+
+    return string.Join(", ", args.Select(a =>
+    {
+        string argName = NameOf(a.Name);
+        return ToCamelCase(ToClrPropertyName(argName, "Arg"));
+    }));
+}
+6. Update your response wrapper generator
+
+Use this version so the property name stays correct and readable:
+
+private GeneratedFile GenerateOperationResponseWrapper(GraphQLFieldDefinition field, string wrapperTypeName, string folderName)
+{
+    string fieldName = NameOf(field.Name);
+    string fieldClrType = MapOutputType(field.Type);
+    string propertyName = ToClrPropertyName(fieldName, wrapperTypeName);
+    string? description = GetDescription(field.Description);
+
+    var sb = new StringBuilder();
+    AppendHeader(sb);
+
+    AppendDescription(sb, $"Response data wrapper for the '{fieldName}' GraphQL operation.", 0);
+    sb.Append("public sealed partial class ").Append(wrapperTypeName).AppendLine();
+    sb.AppendLine("{");
+
+    AppendDescription(sb, description, 1);
+    sb.Append("    public ")
+      .Append(fieldClrType)
+      .Append(' ')
+      .Append(propertyName)
+      .Append(" { get; init; }");
+
+    if (ShouldInitializeCollection(field.Type, fieldClrType))
+    {
+        sb.Append(" = [];");
+    }
+    else if (IsReferenceTypeNeedingNullForgiving(field.Type, fieldClrType))
+    {
+        sb.Append(" = null!;");
+    }
+
+    sb.AppendLine();
+    sb.AppendLine("}");
+
+    return new GeneratedFile($"Operations/{folderName}/{wrapperTypeName}.cs", sb.ToString());
+}
+7. Update Json context wrapper type registration
+
+Where you previously built wrapper names, use ToOperationDataTypeName(...).
+
+So in GenerateJsonContext(...), use:
+
+if (queryRoot?.Fields?.Items is { Count: > 0 })
+{
+    foreach (GraphQLFieldDefinition field in queryRoot.Fields.Items)
+    {
+        string wrapperTypeName = ToOperationDataTypeName(NameOf(field.Name), "Query");
+        allTypes.Add(wrapperTypeName);
+    }
+}
+
+if (mutationRoot?.Fields?.Items is { Count: > 0 })
+{
+    foreach (GraphQLFieldDefinition field in mutationRoot.Fields.Items)
+    {
+        string wrapperTypeName = ToOperationDataTypeName(NameOf(field.Name), "Mutation");
+        allTypes.Add(wrapperTypeName);
+    }
+}
+8. What this now generates
+
+For:
+
+type Query {
+  product(id: ID!): Product
+}
+
+you’ll now get:
+
+wrapper
+public sealed partial class GetProductData
+{
+    public Product? Product { get; init; }
+}
+raw response method
+public Task<GraphQlResponse<GetProductData>> GetProductAsync(string id, CancellationToken cancellationToken = default)
+convenience method
+public async Task<Product?> GetProductValueAsync(string id, CancellationToken cancellationToken = default)
+{
+    GraphQlResponse<GetProductData> response = await GetProductAsync(id, cancellationToken).ConfigureAwait(false);
+    return response.Data?.Product;
+}
+
+That gives you both:
+
+full GraphQL envelope access
+
+clean SDK-style value access
+
+9. Strong recommendation: add nullable-safe convenience behavior later
+
+Right now the convenience method simply returns the value, even if GraphQL returned errors.
+
+That is okay for now, but later you may want a stricter variant like:
+
+public async Task<Product?> GetProductValueOrThrowAsync(...)
+
+which throws if response.HasErrors.
+
+I would not force that yet. Keeping both low-level and convenience methods is the right call.
+
+10. One more improvement worth doing soon
+
+Your current operation methods serialize anonymous variables objects, which is fine, but the next upgrade should be to generate per-operation variables DTOs too:
+
+GetProductVariables
+
+ArticleCreateVariables
+
+That gives:
+
+cleaner source generation context support
+
+better debugger visibility
+
+better SDK shape
+
+no anonymous type serialization dependency
+
+That’s the next step I’d do after this.

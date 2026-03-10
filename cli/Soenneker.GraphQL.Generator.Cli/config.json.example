@@ -1,0 +1,14 @@
+{
+  "SchemaPath": "./schema.graphql",
+  "OutputDirectory": "./Generated",
+  "Namespace": "MyApp.Generated",
+  "IdClrType": "string",
+  "EmitRootTypes": true,
+  "EmitScalarAliases": false,
+  "EmitJsonSerializerContext": true,
+  "JsonSerializerContextName": "MyApiJsonContext",
+  "GlobalUsings": [
+    "System",
+    "System.Collections.Generic"
+  ]
+}

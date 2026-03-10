@@ -1,0 +1,12 @@
+<Solution>
+  <Folder Name="/.github/">
+    <File Path=".github/renovate.json" />
+  </Folder>
+  <Folder Name="/.github/workflows/">
+    <File Path=".github/workflows/build-and-test.yml" />
+    <File Path=".github/workflows/publish-package.yml" />
+  </Folder>
+  <Project Path="src/Soenneker.GraphQL.Generator.csproj" />
+  <Project Path="cli/Soenneker.GraphQL.Generator.Cli/Soenneker.GraphQL.Generator.Cli.csproj" />
+  <Project Path="test/Soenneker.GraphQL.Generator.Tests/Soenneker.GraphQL.Generator.Tests.csproj" />
+</Solution>
