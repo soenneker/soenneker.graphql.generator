@@ -4,9 +4,14 @@
   </Folder>
   <Folder Name="/.github/workflows/">
     <File Path=".github/workflows/build-and-test.yml" />
+    <File Path=".github/workflows/codeql.yml" />
     <File Path=".github/workflows/publish-package.yml" />
   </Folder>
-  <Project Path="src/Soenneker.GraphQL.Generator.csproj" />
+  <Folder Name="/src/">
+    <Project Path="src/Soenneker.GraphQL.Generator/Soenneker.GraphQL.Generator.csproj" />
+  </Folder>
+  <Folder Name="/test/">
+    <Project Path="test/Soenneker.GraphQL.Generator.Tests/Soenneker.GraphQL.Generator.Tests.csproj" />
+  </Folder>
   <Project Path="cli/Soenneker.GraphQL.Generator.Cli/Soenneker.GraphQL.Generator.Cli.csproj" />
-  <Project Path="test/Soenneker.GraphQL.Generator.Tests/Soenneker.GraphQL.Generator.Tests.csproj" />
 </Solution>
