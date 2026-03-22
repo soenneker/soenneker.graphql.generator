@@ -210,48 +210,9 @@ internal static class CSharpNaming
         return clr;
     }
 
-    /// <summary>
-    /// Known operation verb suffixes used to group under a resource folder (Kiota-style).
-    /// e.g. blogCreate -> Blog/Create, articleDelete -> Article/Delete.
-    /// </summary>
-    private static readonly HashSet<string> _operationActionStarters = new(StringComparer.Ordinal)
-    {
-        "Accept", "Acknowledge", "Activate", "Add", "Approve", "Assign", "Calculate", "Cancel", "Change", "Close", "Complete",
-        "Create", "Deactivate", "Delete", "Duplicate", "Extend", "Generate", "Get", "Hold", "Invite", "Mark", "Merge", "Move",
-        "Open", "Pause", "Publish", "Receive", "Redeem", "Reject", "Release", "Remove", "Replace", "Request", "Resume", "Revoke",
-        "Run", "Send", "Set", "Split", "Submit", "Trigger", "Unpublish", "Update", "Upsert"
-    };
-
-    /// <summary>
-    /// Returns folder path segments for Kiota-style layout: (resourceFolder, operationFolder?).
-    /// e.g. blogCreate -> ("Blog", "Create"), customerMerge -> ("Customer", "Merge"), getViewer -> ("GetViewer", null).
-    /// When operationFolder is null, use a single segment: Clients/Resource/.
-    /// </summary>
-    public static (string ResourceFolder, string? OperationFolder) GetOperationPathSegments(string fieldName)
-    {
-        string clr = ToClrTypeName(fieldName);
-        if (string.IsNullOrEmpty(clr)) return (clr, null);
-
-        List<string> tokens = SplitPascalCaseTokens(clr);
-
-        for (int i = 1; i < tokens.Count; i++)
-        {
-            if (!_operationActionStarters.Contains(tokens[i]))
-                continue;
-
-            string resource = string.Concat(tokens.Take(i));
-            string operation = string.Concat(tokens.Skip(i));
-
-            if (resource.Length > 0 && operation.Length > 0)
-                return (resource, operation);
-        }
-
-        return (clr, null);
-    }
-
     public static string ToOperationGroupBuilderName(string resourceName) => resourceName + "Builder";
 
-    private static List<string> SplitPascalCaseTokens(string value)
+    public static IReadOnlyList<string> SplitPascalCaseTokens(string value)
     {
         var tokens = new List<string>();
 

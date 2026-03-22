@@ -13,6 +13,7 @@ internal sealed partial class SchemaGenerator
     private GeneratedFile GenerateGraphQlClientRoot(GraphQLObjectTypeDefinition? queryRoot, GraphQLObjectTypeDefinition? mutationRoot)
     {
         string entryClientName = GetEntryClientTypeName();
+        IReadOnlyList<MutationOperationLayout> mutationLayouts = GetMutationOperationLayouts(mutationRoot);
         var sb = new PooledStringBuilder();
         try
         {
@@ -58,7 +59,7 @@ internal sealed partial class SchemaGenerator
             }
         }
 
-        IReadOnlyList<OperationGroup> mutationGroups = GetOperationGroups(mutationRoot);
+        IReadOnlyList<OperationGroup> mutationGroups = GetOperationGroups(mutationLayouts);
 
         foreach (OperationGroup group in mutationGroups)
         {
@@ -79,27 +80,25 @@ internal sealed partial class SchemaGenerator
             sb.AppendLine();
         }
 
-        if (mutationRoot?.Fields?.Items is { Count: > 0 })
+        foreach (MutationOperationLayout layout in mutationLayouts)
         {
-            foreach (GraphQLFieldDefinition field in mutationRoot.Fields.Items)
-            {
-                string fieldName = NameOf(field.Name);
-                string requestBuilderName = CSharpNaming.ToOperationRequestBuilderName(fieldName, "Mutation");
-                string propertyName = CSharpNaming.ToOperationBuilderPropertyName(fieldName, "Mutation");
-                sb.AppendLine("    /// <summary>");
-                sb.Append("    /// Builds and executes requests for the '");
-                sb.Append(fieldName);
-                sb.Append("' mutation.</summary>");
-                sb.AppendLine();
-                sb.Append("    public ");
-                sb.Append(requestBuilderName);
-                sb.Append(' ');
-                sb.Append(propertyName);
-                sb.Append(" => new ");
-                sb.Append(requestBuilderName);
-                sb.AppendLine("(_graphQlClient);");
-                sb.AppendLine();
-            }
+            if (layout.GroupName is not null)
+                continue;
+
+            string propertyName = CSharpNaming.ToOperationBuilderPropertyName(layout.FieldName, "Mutation");
+            sb.AppendLine("    /// <summary>");
+            sb.Append("    /// Builds and executes requests for the '");
+            sb.Append(layout.FieldName);
+            sb.Append("' mutation.</summary>");
+            sb.AppendLine();
+            sb.Append("    public ");
+            sb.Append(layout.RequestBuilderName);
+            sb.Append(' ');
+            sb.Append(propertyName);
+            sb.Append(" => new ");
+            sb.Append(layout.RequestBuilderName);
+            sb.AppendLine("(_graphQlClient);");
+            sb.AppendLine();
         }
 
         sb.AppendLine("}");
@@ -114,14 +113,28 @@ internal sealed partial class SchemaGenerator
     private IReadOnlyList<GeneratedFile> GenerateOperationArtifacts(GraphQLObjectTypeDefinition rootType, string classPrefix)
     {
         var files = new List<GeneratedFile>();
+        Dictionary<string, MutationOperationLayout>? mutationLayouts = null;
+
+        if (classPrefix.Equals("Mutation", StringComparison.Ordinal))
+        {
+            mutationLayouts = GetMutationOperationLayouts(rootType).ToDictionary(static layout => layout.FieldName, StringComparer.Ordinal);
+        }
 
         if (rootType.Fields?.Items is { Count: > 0 })
         {
             foreach (GraphQLFieldDefinition field in rootType.Fields.Items)
             {
                 string fieldName = NameOf(field.Name);
-                (string resourceFolder, string? operationFolder) = CSharpNaming.GetOperationPathSegments(fieldName);
-                string pathSegment = operationFolder is not null ? $"{resourceFolder}/{operationFolder}" : resourceFolder;
+                string pathSegment;
+
+                if (mutationLayouts is not null && mutationLayouts.TryGetValue(fieldName, out MutationOperationLayout? layout))
+                {
+                    pathSegment = layout.PathSegment;
+                }
+                else
+                {
+                    pathSegment = CSharpNaming.ToClrTypeName(fieldName);
+                }
 
                 string wrapperTypeName = CSharpNaming.ToOperationDataTypeName(fieldName, classPrefix);
                 files.Add(GenerateOperationResponseWrapper(field, wrapperTypeName, pathSegment));
@@ -383,7 +396,7 @@ internal sealed partial class SchemaGenerator
 
     private IReadOnlyList<GeneratedFile> GenerateGroupedOperationBuilderFiles(GraphQLObjectTypeDefinition? rootType)
     {
-        IReadOnlyList<OperationGroup> groups = GetOperationGroups(rootType);
+        IReadOnlyList<OperationGroup> groups = GetOperationGroups(GetMutationOperationLayouts(rootType));
 
         if (groups.Count == 0)
             return [];
@@ -448,43 +461,109 @@ internal sealed partial class SchemaGenerator
         }
     }
 
-    private IReadOnlyList<OperationGroup> GetOperationGroups(GraphQLObjectTypeDefinition? rootType)
+    private IReadOnlyList<OperationGroup> GetOperationGroups(IReadOnlyList<MutationOperationLayout> layouts)
     {
-        if (rootType?.Fields?.Items is not { Count: > 0 })
-            return [];
-
-        var groupedOperations = new Dictionary<string, List<GroupedOperation>>(StringComparer.Ordinal);
-
-        foreach (GraphQLFieldDefinition field in rootType.Fields.Items)
-        {
-            string fieldName = NameOf(field.Name);
-            (string resourceFolder, string? operationFolder) = CSharpNaming.GetOperationPathSegments(fieldName);
-
-            if (string.IsNullOrWhiteSpace(operationFolder))
-                continue;
-
-            if (!groupedOperations.TryGetValue(resourceFolder, out List<GroupedOperation>? operations))
-            {
-                operations = [];
-                groupedOperations[resourceFolder] = operations;
-            }
-
-            operations.Add(new GroupedOperation(fieldName, operationFolder, CSharpNaming.ToOperationRequestBuilderName(fieldName, "Mutation")));
-        }
-
-        return groupedOperations
-            .Where(static kvp => kvp.Value.Count > 1)
-            .OrderBy(static kvp => kvp.Key, StringComparer.Ordinal)
-            .Select(static kvp => new OperationGroup(
-                kvp.Key,
-                kvp.Value
+        return layouts
+            .Where(static layout => layout.GroupName is not null && layout.ActionName is not null)
+            .GroupBy(static layout => layout.GroupName!, StringComparer.Ordinal)
+            .Where(static group => group.Count() > 1)
+            .OrderBy(static group => group.Key, StringComparer.Ordinal)
+            .Select(static group => new OperationGroup(
+                group.Key,
+                group
+                    .Select(static layout => new GroupedOperation(layout.FieldName, layout.ActionName!, layout.RequestBuilderName))
                     .OrderBy(static operation => operation.ActionName, StringComparer.Ordinal)
                     .ToList()))
             .ToList();
     }
 
+    private IReadOnlyList<MutationOperationLayout> GetMutationOperationLayouts(GraphQLObjectTypeDefinition? rootType)
+    {
+        if (rootType?.Fields?.Items is not { Count: > 0 })
+            return [];
+
+        const double continuationThreshold = 0.5d;
+
+        var fields = rootType.Fields.Items
+            .Select(static field => NameOf(field.Name))
+            .ToList();
+
+        var fullOperationNames = new HashSet<string>(fields.Select(CSharpNaming.ToClrTypeName), StringComparer.Ordinal);
+        var tokenMap = fields.ToDictionary(
+            static fieldName => fieldName,
+            static fieldName => CSharpNaming.SplitPascalCaseTokens(CSharpNaming.ToClrTypeName(fieldName)),
+            StringComparer.Ordinal);
+
+        var prefixCounts = new Dictionary<string, int>(StringComparer.Ordinal);
+
+        foreach ((_, IReadOnlyList<string> tokens) in tokenMap)
+        {
+            for (int length = 1; length < tokens.Count; length++)
+            {
+                string prefix = string.Concat(tokens.Take(length));
+                prefixCounts[prefix] = prefixCounts.TryGetValue(prefix, out int count) ? count + 1 : 1;
+            }
+        }
+
+        var layouts = new List<MutationOperationLayout>(fields.Count);
+
+        foreach (string fieldName in fields)
+        {
+            IReadOnlyList<string> tokens = tokenMap[fieldName];
+            string clrName = CSharpNaming.ToClrTypeName(fieldName);
+            string? groupName = null;
+            string? actionName = null;
+
+            if (tokens.Count > 1)
+            {
+                int bestPrefixLength = 0;
+
+                for (int length = 1; length < tokens.Count; length++)
+                {
+                    string prefix = string.Concat(tokens.Take(length));
+
+                    if (!prefixCounts.TryGetValue(prefix, out int prefixCount) || prefixCount < 2)
+                        break;
+
+                    if (fullOperationNames.Contains(prefix))
+                        break;
+
+                    if (length > 1)
+                    {
+                        string parentPrefix = string.Concat(tokens.Take(length - 1));
+                        int parentCount = prefixCounts[parentPrefix];
+
+                        if ((double)prefixCount / parentCount < continuationThreshold)
+                            break;
+                    }
+
+                    bestPrefixLength = length;
+                }
+
+                if (bestPrefixLength > 0)
+                {
+                    groupName = string.Concat(tokens.Take(bestPrefixLength));
+                    actionName = string.Concat(tokens.Skip(bestPrefixLength));
+
+                    if (string.IsNullOrWhiteSpace(actionName))
+                    {
+                        groupName = null;
+                        actionName = null;
+                    }
+                }
+            }
+
+            string pathSegment = groupName is not null && actionName is not null ? $"{groupName}/{actionName}" : clrName;
+            string requestBuilderName = CSharpNaming.ToOperationRequestBuilderName(fieldName, "Mutation");
+            layouts.Add(new MutationOperationLayout(fieldName, requestBuilderName, pathSegment, groupName, actionName));
+        }
+
+        return layouts;
+    }
+
     private sealed record GroupedOperation(string FieldName, string ActionName, string RequestBuilderName);
     private sealed record OperationGroup(string ResourceName, IReadOnlyList<GroupedOperation> Operations);
+    private sealed record MutationOperationLayout(string FieldName, string RequestBuilderName, string PathSegment, string? GroupName, string? ActionName);
 
     private string GetEntryClientTypeName()
     {
