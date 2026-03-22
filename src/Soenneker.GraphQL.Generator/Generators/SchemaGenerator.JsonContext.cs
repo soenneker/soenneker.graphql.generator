@@ -1,4 +1,4 @@
-using System.Text;
+using Soenneker.Utils.PooledStringBuilders;
 using GraphQLParser.AST;
 using Soenneker.GraphQL.Generator.Dtos;
 using Soenneker.GraphQL.Generator.Utils;
@@ -49,8 +49,10 @@ internal sealed partial class SchemaGenerator
                 allTypes.Add(CSharpNaming.ToOperationDataTypeName(NameOf(field.Name), "Mutation"));
         }
 
-        var sb = new StringBuilder();
-        AppendHeader(sb);
+        var sb = new PooledStringBuilder();
+        try
+        {
+        AppendHeader(ref sb);
         sb.AppendLine("using System.Text.Json.Serialization;");
         sb.AppendLine();
         sb.AppendLine("[JsonSourceGenerationOptions(");
@@ -59,12 +61,24 @@ internal sealed partial class SchemaGenerator
         sb.AppendLine("    WriteIndented = true)]");
         foreach (string type in allTypes.OrderBy(static x => x, StringComparer.Ordinal))
         {
-            sb.Append("[JsonSerializable(typeof(").Append(type).AppendLine("))]");
-            sb.Append("[JsonSerializable(typeof(GraphQlResponse<").Append(type).AppendLine(">))]");
+            sb.Append("[JsonSerializable(typeof(");
+            sb.Append(type);
+            sb.AppendLine("))]");
+            sb.Append("[JsonSerializable(typeof(GraphQlResponse<");
+            sb.Append(type);
+            sb.AppendLine(">))]");
         }
-        sb.Append("public partial class ").Append(_config.JsonSerializerContextName).Append(" : JsonSerializerContext").AppendLine();
+        sb.Append("public partial class ");
+        sb.Append(_config.JsonSerializerContextName);
+        sb.Append(" : JsonSerializerContext");
+        sb.AppendLine();
         sb.AppendLine("{");
         sb.AppendLine("}");
         return new GeneratedFile($"Transport/{_config.JsonSerializerContextName}.cs", sb.ToString());
+        }
+        finally
+        {
+            sb.Dispose();
+        }
     }
 }

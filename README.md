@@ -13,10 +13,25 @@ dotnet add package Soenneker.GraphQL.Generator
 
 ## Usage
 
-**Library:** Inject `IGraphQLGenerator` and call `Generate(schemaContent, config)` to get a `GenerationResult` with generated C# files and type counts. Write the files to disk yourself, or use the CLI.
+**Library:** Inject `IGraphQLGenerator` and either:
+
+- call `Generate(schemaContent, config)` to get a `GenerationResult` with generated C# files and type counts
+- call `Generate(schemaContent, config, cancellationToken)` to generate from an in-memory SDL string and write all files to `config.OutputDirectory`
 
 **CLI (gql2cs):** Build and run the `Soenneker.GraphQL.Generator.Cli` project, or run the published `gql2cs` executable:
 
 ```bash
 gql2cs --config ./gql2cs.json
+```
+
+### Library example
+
+```csharp
+var config = new GeneratorConfig
+{
+    Namespace = "MyCompany.MyApi.GraphQL",
+    OutputDirectory = "./Generated"
+};
+
+await graphQlGenerator.Generate(schemaSdl, config, cancellationToken);
 ```

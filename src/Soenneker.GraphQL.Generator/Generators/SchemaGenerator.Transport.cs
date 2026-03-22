@@ -1,4 +1,4 @@
-using System.Text;
+using Soenneker.Utils.PooledStringBuilders;
 using Soenneker.GraphQL.Generator.Dtos;
 
 namespace Soenneker.GraphQL.Generator.Generators;
@@ -10,8 +10,10 @@ internal sealed partial class SchemaGenerator
 {
     private GeneratedFile GenerateGraphQlRequestFile()
     {
-        var sb = new StringBuilder();
-        AppendHeader(sb);
+        var sb = new PooledStringBuilder();
+        try
+        {
+        AppendHeader(ref sb);
         sb.AppendLine("using System.Text.Json.Serialization;");
         sb.AppendLine();
         sb.AppendLine("public sealed class GraphQlRequest");
@@ -26,12 +28,19 @@ internal sealed partial class SchemaGenerator
         sb.AppendLine("    public string? OperationName { get; init; }");
         sb.AppendLine("}");
         return new GeneratedFile("Transport/GraphQlRequest.cs", sb.ToString());
+        }
+        finally
+        {
+            sb.Dispose();
+        }
     }
 
     private GeneratedFile GenerateGraphQlErrorFile()
     {
-        var sb = new StringBuilder();
-        AppendHeader(sb);
+        var sb = new PooledStringBuilder();
+        try
+        {
+        AppendHeader(ref sb);
         sb.AppendLine("using System.Collections.Generic;");
         sb.AppendLine("using System.Text.Json.Serialization;");
         sb.AppendLine();
@@ -59,12 +68,19 @@ internal sealed partial class SchemaGenerator
         sb.AppendLine("    public int Column { get; init; }");
         sb.AppendLine("}");
         return new GeneratedFile("Transport/GraphQlError.cs", sb.ToString());
+        }
+        finally
+        {
+            sb.Dispose();
+        }
     }
 
     private GeneratedFile GenerateGraphQlResponseFile()
     {
-        var sb = new StringBuilder();
-        AppendHeader(sb);
+        var sb = new PooledStringBuilder();
+        try
+        {
+        AppendHeader(ref sb);
         sb.AppendLine("using System.Collections.Generic;");
         sb.AppendLine("using System.Text.Json.Serialization;");
         sb.AppendLine();
@@ -79,12 +95,19 @@ internal sealed partial class SchemaGenerator
         sb.AppendLine("    public bool HasErrors => Errors is { Count: > 0 };");
         sb.AppendLine("}");
         return new GeneratedFile("Transport/GraphQlResponse.cs", sb.ToString());
+        }
+        finally
+        {
+            sb.Dispose();
+        }
     }
 
     private GeneratedFile GenerateIGraphQlClientFile()
     {
-        var sb = new StringBuilder();
-        AppendHeader(sb);
+        var sb = new PooledStringBuilder();
+        try
+        {
+        AppendHeader(ref sb);
         sb.AppendLine("using System.Threading;");
         sb.AppendLine("using System.Threading.Tasks;");
         sb.AppendLine();
@@ -96,12 +119,19 @@ internal sealed partial class SchemaGenerator
         sb.AppendLine("        CancellationToken cancellationToken = default);");
         sb.AppendLine("}");
         return new GeneratedFile("Transport/IGraphQlClient.cs", sb.ToString());
+        }
+        finally
+        {
+            sb.Dispose();
+        }
     }
 
     private GeneratedFile GenerateGraphQlHttpClientFile()
     {
-        var sb = new StringBuilder();
-        AppendHeader(sb);
+        var sb = new PooledStringBuilder();
+        try
+        {
+        AppendHeader(ref sb);
         sb.AppendLine("using System;");
         sb.AppendLine("using System.Net.Http;");
         sb.AppendLine("using System.Net.Http.Json;");
@@ -131,13 +161,18 @@ internal sealed partial class SchemaGenerator
         sb.AppendLine("            Variables = variables");
         sb.AppendLine("        };");
         sb.AppendLine();
-        sb.AppendLine("        using HttpResponseMessage response = await _httpClient.PostAsJsonAsync(string.Empty, request, _serializerOptions, cancellationToken).ConfigureAwait(false);");
+        sb.AppendLine("        using HttpResponseMessage response = await _httpClient.PostAsJsonAsync(string.Empty, request, _serializerOptions, cancellationToken).NoSync();");
         sb.AppendLine("        response.EnsureSuccessStatusCode();");
         sb.AppendLine();
-        sb.AppendLine("        GraphQlResponse<T>? payload = await response.Content.ReadFromJsonAsync<GraphQlResponse<T>>(_serializerOptions, cancellationToken).ConfigureAwait(false);");
+        sb.AppendLine("        GraphQlResponse<T>? payload = await response.Content.ReadFromJsonAsync<GraphQlResponse<T>>(_serializerOptions, cancellationToken).NoSync();");
         sb.AppendLine("        return payload ?? throw new InvalidOperationException(\"GraphQL response body was null.\");");
         sb.AppendLine("    }");
         sb.AppendLine("}");
         return new GeneratedFile("Transport/GraphQlHttpClient.cs", sb.ToString());
+        }
+        finally
+        {
+            sb.Dispose();
+        }
     }
 }

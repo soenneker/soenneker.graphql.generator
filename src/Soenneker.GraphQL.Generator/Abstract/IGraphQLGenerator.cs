@@ -6,7 +6,7 @@ namespace Soenneker.GraphQL.Generator.Abstract;
 /// <summary>
 /// Generates C# types and optional JsonSerializerContext from GraphQL SDL schemas.
 /// </summary>
-public interface IGraphQLGenerator
+public interface IGraphQlGenerator
 {
     /// <summary>
     /// Parses the given GraphQL schema and returns generated C# files and counts.
@@ -18,10 +18,19 @@ public interface IGraphQLGenerator
     GenerationResult Generate(string schemaContent, GeneratorConfig config);
 
     /// <summary>
+    /// Parses the given GraphQL schema, generates source files, and writes them to the configured output directory.
+    /// </summary>
+    /// <param name="schemaContent">Full GraphQL SDL schema text.</param>
+    /// <param name="config">Generation options. <see cref="GeneratorConfig.OutputDirectory"/> is required.</param>
+    /// <param name="cancellationToken">A token used to cancel the generation run.</param>
+    /// <returns>The generation summary and resolved output directory.</returns>
+    ValueTask<GenerationRunResult> Run(string schemaContent, GeneratorConfig config, CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Reads configuration and schema from disk, generates source files, and writes them to the configured output directory.
     /// </summary>
     /// <param name="configPath">Path to the generator config JSON file.</param>
     /// <param name="cancellationToken">A token used to cancel the generation run.</param>
     /// <returns>The generation summary and resolved output directory.</returns>
-    ValueTask<GenerationRunResult> Generate(string configPath, CancellationToken cancellationToken = default);
+    ValueTask<GenerationRunResult> RunFromConfig(string configPath, CancellationToken cancellationToken = default);
 }

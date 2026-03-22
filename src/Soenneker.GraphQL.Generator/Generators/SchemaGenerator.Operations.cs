@@ -1,4 +1,4 @@
-using System.Text;
+using Soenneker.Utils.PooledStringBuilders;
 using GraphQLParser.AST;
 using Soenneker.GraphQL.Generator.Dtos;
 using Soenneker.GraphQL.Generator.Utils;
@@ -12,12 +12,14 @@ internal sealed partial class SchemaGenerator
 {
     private GeneratedFile GenerateGraphQlClientRoot(GraphQLObjectTypeDefinition? queryRoot, GraphQLObjectTypeDefinition? mutationRoot)
     {
-        var sb = new StringBuilder();
-        AppendHeader(sb);
+        var sb = new PooledStringBuilder();
+        try
+        {
+        AppendHeader(ref sb);
         sb.AppendLine("using System.Threading;");
         sb.AppendLine("using System.Threading.Tasks;");
         sb.AppendLine();
-        AppendDescription(sb, "Root GraphQL client; exposes one request builder per query and mutation operation. Create with: new GraphQlClient(new GraphQlHttpClient(httpClient)) or pass any IGraphQlClient implementation.", 0);
+        AppendDescription(ref sb, "Root GraphQL client; exposes one request builder per query and mutation operation. Create with: new GraphQlClient(new GraphQlHttpClient(httpClient)) or pass any IGraphQlClient implementation.", 0);
         sb.AppendLine("public sealed partial class GraphQlClient");
         sb.AppendLine("{");
         sb.AppendLine("    private readonly IGraphQlClient _graphQlClient;");
@@ -39,8 +41,17 @@ internal sealed partial class SchemaGenerator
                 string requestBuilderName = CSharpNaming.ToOperationRequestBuilderName(fieldName, "Query");
                 string propertyName = CSharpNaming.ToOperationBuilderPropertyName(fieldName, "Query");
                 sb.AppendLine("    /// <summary>");
-                sb.Append("    /// Builds and executes requests for the '").Append(fieldName).Append("' query.</summary>").AppendLine();
-                sb.Append("    public ").Append(requestBuilderName).Append(' ').Append(propertyName).Append(" => new ").Append(requestBuilderName).AppendLine("(_graphQlClient);");
+                sb.Append("    /// Builds and executes requests for the '");
+                sb.Append(fieldName);
+                sb.Append("' query.</summary>");
+                sb.AppendLine();
+                sb.Append("    public ");
+                sb.Append(requestBuilderName);
+                sb.Append(' ');
+                sb.Append(propertyName);
+                sb.Append(" => new ");
+                sb.Append(requestBuilderName);
+                sb.AppendLine("(_graphQlClient);");
                 sb.AppendLine();
             }
         }
@@ -53,14 +64,28 @@ internal sealed partial class SchemaGenerator
                 string requestBuilderName = CSharpNaming.ToOperationRequestBuilderName(fieldName, "Mutation");
                 string propertyName = CSharpNaming.ToOperationBuilderPropertyName(fieldName, "Mutation");
                 sb.AppendLine("    /// <summary>");
-                sb.Append("    /// Builds and executes requests for the '").Append(fieldName).Append("' mutation.</summary>").AppendLine();
-                sb.Append("    public ").Append(requestBuilderName).Append(' ').Append(propertyName).Append(" => new ").Append(requestBuilderName).AppendLine("(_graphQlClient);");
+                sb.Append("    /// Builds and executes requests for the '");
+                sb.Append(fieldName);
+                sb.Append("' mutation.</summary>");
+                sb.AppendLine();
+                sb.Append("    public ");
+                sb.Append(requestBuilderName);
+                sb.Append(' ');
+                sb.Append(propertyName);
+                sb.Append(" => new ");
+                sb.Append(requestBuilderName);
+                sb.AppendLine("(_graphQlClient);");
                 sb.AppendLine();
             }
         }
 
         sb.AppendLine("}");
         return new GeneratedFile("Clients/GraphQlClient.cs", sb.ToString());
+        }
+        finally
+        {
+            sb.Dispose();
+        }
     }
 
     private IReadOnlyList<GeneratedFile> GenerateOperationArtifacts(GraphQLObjectTypeDefinition rootType, string classPrefix)
@@ -100,18 +125,26 @@ internal sealed partial class SchemaGenerator
     private GeneratedFile GenerateOperationRequestType(GraphQLFieldDefinition field, string requestTypeName, string pathSegment)
     {
         var args = field.Arguments?.Items?.ToList() ?? [];
-        var sb = new StringBuilder();
-        AppendHeader(sb);
-        AppendDescription(sb, $"Request parameters for the '{NameOf(field.Name)}' GraphQL operation.", 0);
-        sb.Append("public sealed class ").Append(requestTypeName).AppendLine();
+        var sb = new PooledStringBuilder();
+        try
+        {
+        AppendHeader(ref sb);
+        AppendDescription(ref sb, $"Request parameters for the '{NameOf(field.Name)}' GraphQL operation.", 0);
+        sb.Append("public sealed class ");
+        sb.Append(requestTypeName);
+        sb.AppendLine();
         sb.AppendLine("{");
         foreach (GraphQLInputValueDefinition arg in args)
         {
             string propertyType = MapInputType(arg.Type);
             string propertyName = CSharpNaming.ToClrPropertyName(NameOf(arg.Name), requestTypeName);
             string? argDescription = GetDescription(arg.Description);
-            AppendDescription(sb, argDescription, 1);
-            sb.Append("    public ").Append(propertyType).Append(' ').Append(propertyName).Append(" { get; init; }");
+            AppendDescription(ref sb, argDescription, 1);
+            sb.Append("    public ");
+            sb.Append(propertyType);
+            sb.Append(' ');
+            sb.Append(propertyName);
+            sb.Append(" { get; init; }");
             if (ShouldInitializeCollection(arg.Type, propertyType))
                 sb.Append(" = [];");
             else if (IsReferenceTypeNeedingNullForgiving(arg.Type, propertyType))
@@ -121,6 +154,11 @@ internal sealed partial class SchemaGenerator
         }
         sb.AppendLine("}");
         return new GeneratedFile($"Clients/{pathSegment}/{requestTypeName}.cs", sb.ToString());
+        }
+        finally
+        {
+            sb.Dispose();
+        }
     }
 
     private GeneratedFile GenerateOperationRequestBuilder(GraphQLFieldDefinition field, string operationKind, string wrapperTypeName, string? requestTypeName, string requestBuilderName, string pathSegment)
@@ -136,82 +174,156 @@ internal sealed partial class SchemaGenerator
         string fieldArguments = BuildFieldArgumentList(args);
         string gqlOperationType = operationKind.Equals("Mutation", StringComparison.Ordinal) ? "mutation" : "query";
 
-        var sb = new StringBuilder();
-        AppendHeader(sb);
-        sb.AppendLine("using System.Threading;");
-        sb.AppendLine("using System.Threading.Tasks;");
-        sb.AppendLine();
-        AppendDescription(sb, $"Builds and executes requests for the '{fieldName}' GraphQL {gqlOperationType}.", 0);
-        sb.Append("public sealed partial class ").Append(requestBuilderName).AppendLine();
-        sb.AppendLine("{");
-        sb.AppendLine("    private readonly IGraphQlClient _graphQlClient;");
-        sb.AppendLine();
-        sb.Append("    public ").Append(requestBuilderName).AppendLine("(IGraphQlClient graphQlClient)");
-        sb.AppendLine("    {");
-        sb.AppendLine("        _graphQlClient = graphQlClient;");
-        sb.AppendLine("    }");
-        sb.AppendLine();
-
-        if (requestTypeName is not null)
+        var sb = new PooledStringBuilder();
+        try
         {
-            AppendDescription(sb, $"Executes the GraphQL {gqlOperationType} '{fieldName}' with the given request parameters.", 1);
-            sb.Append("    public Task<GraphQlResponse<").Append(wrapperTypeName).Append(">> ExecuteAsync(").Append(requestTypeName).Append(" request, CancellationToken cancellationToken = default)").AppendLine();
+            AppendHeader(ref sb);
+            sb.AppendLine("using System.Threading;");
+            sb.AppendLine("using System.Threading.Tasks;");
+            sb.AppendLine();
+            AppendDescription(ref sb, $"Builds and executes requests for the '{fieldName}' GraphQL {gqlOperationType}.", 0);
+            sb.Append("public sealed partial class ");
+            sb.Append(requestBuilderName);
+            sb.AppendLine();
+            sb.AppendLine("{");
+            sb.AppendLine("    private readonly IGraphQlClient _graphQlClient;");
+            sb.AppendLine();
+            sb.Append("    public ");
+            sb.Append(requestBuilderName);
+            sb.AppendLine("(IGraphQlClient graphQlClient)");
             sb.AppendLine("    {");
-            sb.Append("        const string gqlQuery = @\"").Append(gqlOperationType).Append(' ').Append(executeMethodName);
-            if (variableDefinitions.Length > 0)
-                sb.Append('(').Append(variableDefinitions).Append(')');
-            sb.Append(" { ").Append(fieldName);
-            if (fieldArguments.Length > 0)
-                sb.Append('(').Append(fieldArguments).Append(')');
-            sb.Append(' ');
-            if (!string.IsNullOrWhiteSpace(selectionSet))
-                sb.Append(selectionSet).Append(' ');
-            sb.Append("}\";").AppendLine();
-            sb.AppendLine("        object variables = new");
-            sb.AppendLine("        {");
-            for (int i = 0; i < args.Count; i++)
+            sb.AppendLine("        _graphQlClient = graphQlClient;");
+            sb.AppendLine("    }");
+            sb.AppendLine();
+
+            if (requestTypeName is not null)
             {
-                GraphQLInputValueDefinition arg = args[i];
-                string clrArgName = CSharpNaming.ToClrPropertyName(NameOf(arg.Name), requestTypeName);
-                string camel = CSharpNaming.ToCamelCase(clrArgName);
-                string camelSafe = CSharpNaming.SafeParameterName(camel);
-                sb.Append("            ").Append(camelSafe).Append(" = request.").Append(clrArgName);
-                if (i < args.Count - 1) sb.Append(',');
+                AppendDescription(ref sb, $"Executes the GraphQL {gqlOperationType} '{fieldName}' with the given request parameters.", 1);
+                sb.Append("    public Task<GraphQlResponse<");
+                sb.Append(wrapperTypeName);
+                sb.Append(">> ExecuteAsync(");
+                sb.Append(requestTypeName);
+                sb.Append(" request, CancellationToken cancellationToken = default)");
                 sb.AppendLine();
-            }
-            sb.AppendLine("        };");
-            sb.Append("        return _graphQlClient.ExecuteAsync<").Append(wrapperTypeName).Append(">(gqlQuery, variables, cancellationToken);").AppendLine();
-            sb.AppendLine("    }");
-            sb.AppendLine();
-            AppendDescription(sb, $"Executes the operation and returns only the '{fieldName}' value from the GraphQL data envelope.", 1);
-            sb.Append("    public async Task<").Append(nullableResultType).Append("> GetValueAsync(").Append(requestTypeName).Append(" request, CancellationToken cancellationToken = default)").AppendLine();
-            sb.AppendLine("    {");
-            sb.Append("        GraphQlResponse<").Append(wrapperTypeName).Append("> response = await ExecuteAsync(request, cancellationToken).ConfigureAwait(false);").AppendLine();
-            sb.Append("        return response.Data?.").Append(wrapperPropertyName).AppendLine(";");
-            sb.AppendLine("    }");
-        }
-        else
-        {
-            AppendDescription(sb, $"Executes the GraphQL {gqlOperationType} '{fieldName}'.", 1);
-            sb.Append("    public Task<GraphQlResponse<").Append(wrapperTypeName).Append(">> ExecuteAsync(CancellationToken cancellationToken = default)").AppendLine();
-            sb.AppendLine("    {");
-            sb.Append("        const string gqlQuery = @\"").Append(gqlOperationType).Append(' ').Append(executeMethodName).Append(" { ").Append(fieldName);
-            if (!string.IsNullOrWhiteSpace(selectionSet))
-                sb.Append(' ').Append(selectionSet).Append(' ');
-            sb.Append("}\";").AppendLine();
-            sb.AppendLine("        return _graphQlClient.ExecuteAsync<" + wrapperTypeName + ">(gqlQuery, null, cancellationToken);");
-            sb.AppendLine("    }");
-            sb.AppendLine();
-            AppendDescription(sb, $"Executes the operation and returns only the '{fieldName}' value from the GraphQL data envelope.", 1);
-            sb.Append("    public async Task<").Append(nullableResultType).Append("> GetValueAsync(CancellationToken cancellationToken = default)").AppendLine();
-            sb.AppendLine("    {");
-            sb.Append("        GraphQlResponse<").Append(wrapperTypeName).Append("> response = await ExecuteAsync(cancellationToken).ConfigureAwait(false);").AppendLine();
-            sb.Append("        return response.Data?.").Append(wrapperPropertyName).AppendLine(";");
-            sb.AppendLine("    }");
-        }
+                sb.AppendLine("    {");
+                sb.Append("        const string gqlQuery = @\"");
+                sb.Append(gqlOperationType);
+                sb.Append(' ');
+                sb.Append(executeMethodName);
+                if (variableDefinitions.Length > 0)
+                {
+                    sb.Append('(');
+                    sb.Append(variableDefinitions);
+                    sb.Append(')');
+                }
 
-        sb.AppendLine("}");
-        return new GeneratedFile($"Clients/{pathSegment}/{requestBuilderName}.cs", sb.ToString());
+                sb.Append(" { ");
+                sb.Append(fieldName);
+                if (fieldArguments.Length > 0)
+                {
+                    sb.Append('(');
+                    sb.Append(fieldArguments);
+                    sb.Append(')');
+                }
+
+                sb.Append(' ');
+                if (!string.IsNullOrWhiteSpace(selectionSet))
+                {
+                    sb.Append(selectionSet);
+                    sb.Append(' ');
+                }
+
+                sb.Append("}\";");
+                sb.AppendLine();
+                sb.AppendLine("        object variables = new");
+                sb.AppendLine("        {");
+                for (int i = 0; i < args.Count; i++)
+                {
+                    GraphQLInputValueDefinition arg = args[i];
+                    string clrArgName = CSharpNaming.ToClrPropertyName(NameOf(arg.Name), requestTypeName);
+                    string camel = CSharpNaming.ToCamelCase(clrArgName);
+                    string camelSafe = CSharpNaming.SafeParameterName(camel);
+                    sb.Append("            ");
+                    sb.Append(camelSafe);
+                    sb.Append(" = request.");
+                    sb.Append(clrArgName);
+                    if (i < args.Count - 1)
+                        sb.Append(',');
+                    sb.AppendLine();
+                }
+                sb.AppendLine("        };");
+                sb.Append("        return _graphQlClient.ExecuteAsync<");
+                sb.Append(wrapperTypeName);
+                sb.Append(">(gqlQuery, variables, cancellationToken);");
+                sb.AppendLine();
+                sb.AppendLine("    }");
+                sb.AppendLine();
+                AppendDescription(ref sb, $"Executes the operation and returns only the '{fieldName}' value from the GraphQL data envelope.", 1);
+                sb.Append("    public async Task<");
+                sb.Append(nullableResultType);
+                sb.Append("> GetValueAsync(");
+                sb.Append(requestTypeName);
+                sb.Append(" request, CancellationToken cancellationToken = default)");
+                sb.AppendLine();
+                sb.AppendLine("    {");
+                sb.Append("        GraphQlResponse<");
+                sb.Append(wrapperTypeName);
+                sb.Append("> response = await ExecuteAsync(request, cancellationToken).NoSync();");
+                sb.AppendLine();
+                sb.Append("        return response.Data?.");
+                sb.Append(wrapperPropertyName);
+                sb.AppendLine(";");
+                sb.AppendLine("    }");
+            }
+            else
+            {
+                AppendDescription(ref sb, $"Executes the GraphQL {gqlOperationType} '{fieldName}'.", 1);
+                sb.Append("    public Task<GraphQlResponse<");
+                sb.Append(wrapperTypeName);
+                sb.Append(">> ExecuteAsync(CancellationToken cancellationToken = default)");
+                sb.AppendLine();
+                sb.AppendLine("    {");
+                sb.Append("        const string gqlQuery = @\"");
+                sb.Append(gqlOperationType);
+                sb.Append(' ');
+                sb.Append(executeMethodName);
+                sb.Append(" { ");
+                sb.Append(fieldName);
+                if (!string.IsNullOrWhiteSpace(selectionSet))
+                {
+                    sb.Append(' ');
+                    sb.Append(selectionSet);
+                    sb.Append(' ');
+                }
+
+                sb.Append("}\";");
+                sb.AppendLine();
+                sb.AppendLine("        return _graphQlClient.ExecuteAsync<" + wrapperTypeName + ">(gqlQuery, null, cancellationToken);");
+                sb.AppendLine("    }");
+                sb.AppendLine();
+                AppendDescription(ref sb, $"Executes the operation and returns only the '{fieldName}' value from the GraphQL data envelope.", 1);
+                sb.Append("    public async Task<");
+                sb.Append(nullableResultType);
+                sb.Append("> GetValueAsync(CancellationToken cancellationToken = default)");
+                sb.AppendLine();
+                sb.AppendLine("    {");
+                sb.Append("        GraphQlResponse<");
+                sb.Append(wrapperTypeName);
+                sb.Append("> response = await ExecuteAsync(cancellationToken).NoSync();");
+                sb.AppendLine();
+                sb.Append("        return response.Data?.");
+                sb.Append(wrapperPropertyName);
+                sb.AppendLine(";");
+                sb.AppendLine("    }");
+            }
+
+            sb.AppendLine("}");
+            return new GeneratedFile($"Clients/{pathSegment}/{requestBuilderName}.cs", sb.ToString());
+        }
+        finally
+        {
+            sb.Dispose();
+        }
     }
 
     private GeneratedFile GenerateOperationResponseWrapper(GraphQLFieldDefinition field, string wrapperTypeName, string pathSegment)
@@ -220,13 +332,21 @@ internal sealed partial class SchemaGenerator
         string fieldClrType = MapOutputType(field.Type);
         string propertyName = CSharpNaming.ToClrPropertyName(fieldName, wrapperTypeName);
         string? description = GetDescription(field.Description);
-        var sb = new StringBuilder();
-        AppendHeader(sb);
-        AppendDescription(sb, $"Response data wrapper for the '{fieldName}' GraphQL operation.", 0);
-        sb.Append("public sealed partial class ").Append(wrapperTypeName).AppendLine();
+        var sb = new PooledStringBuilder();
+        try
+        {
+        AppendHeader(ref sb);
+        AppendDescription(ref sb, $"Response data wrapper for the '{fieldName}' GraphQL operation.", 0);
+        sb.Append("public sealed partial class ");
+        sb.Append(wrapperTypeName);
+        sb.AppendLine();
         sb.AppendLine("{");
-        AppendDescription(sb, description, 1);
-        sb.Append("    public ").Append(fieldClrType).Append(' ').Append(propertyName).Append(" { get; init; }");
+        AppendDescription(ref sb, description, 1);
+        sb.Append("    public ");
+        sb.Append(fieldClrType);
+        sb.Append(' ');
+        sb.Append(propertyName);
+        sb.Append(" { get; init; }");
         if (ShouldInitializeCollection(field.Type, fieldClrType))
             sb.Append(" = [];");
         else if (IsReferenceTypeNeedingNullForgiving(field.Type, fieldClrType))
@@ -234,6 +354,11 @@ internal sealed partial class SchemaGenerator
         sb.AppendLine();
         sb.AppendLine("}");
         return new GeneratedFile($"Operations/{pathSegment}/{wrapperTypeName}.cs", sb.ToString());
+        }
+        finally
+        {
+            sb.Dispose();
+        }
     }
 
     private string BuildSelectionSet(GraphQLType fieldType, int maxDepth)

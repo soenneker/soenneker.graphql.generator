@@ -1,4 +1,4 @@
-using System.Text;
+using Soenneker.Utils.PooledStringBuilders;
 using GraphQLParser.AST;
 using Soenneker.GraphQL.Generator.Dtos;
 using Soenneker.GraphQL.Generator.Utils;
@@ -14,8 +14,10 @@ internal sealed partial class SchemaGenerator
     {
         string typeName = CSharpNaming.ToClrTypeName(NameOf(obj.Name));
         string? description = GetDescription(obj.Description);
-        var sb = new StringBuilder();
-        AppendHeader(sb);
+        var sb = new PooledStringBuilder();
+        try
+        {
+        AppendHeader(ref sb);
 
         var interfaces = obj.Interfaces?.Items?
             .Select(i => CSharpNaming.ToClrTypeName(NameOf(i.Name)))
@@ -23,8 +25,11 @@ internal sealed partial class SchemaGenerator
             .ToList() ?? [];
         string inheritance = interfaces.Count > 0 ? " : " + string.Join(", ", interfaces) : string.Empty;
 
-        AppendDescription(sb, description, 0);
-        sb.Append("public sealed partial class ").Append(typeName).Append(inheritance).AppendLine();
+        AppendDescription(ref sb, description, 0);
+        sb.Append("public sealed partial class ");
+        sb.Append(typeName);
+        sb.Append(inheritance);
+        sb.AppendLine();
         sb.AppendLine("{");
 
         if (obj.Fields?.Items is { Count: > 0 })
@@ -34,8 +39,12 @@ internal sealed partial class SchemaGenerator
                 string propertyType = MapOutputType(field.Type);
                 string propertyName = CSharpNaming.ToClrPropertyName(NameOf(field.Name), typeName);
                 string? fieldDescription = GetDescription(field.Description);
-                AppendDescription(sb, fieldDescription, 1);
-                sb.Append("    public ").Append(propertyType).Append(' ').Append(propertyName).Append(" { get; init; }");
+                AppendDescription(ref sb, fieldDescription, 1);
+                sb.Append("    public ");
+                sb.Append(propertyType);
+                sb.Append(' ');
+                sb.Append(propertyName);
+                sb.Append(" { get; init; }");
                 if (ShouldInitializeCollection(field.Type, propertyType))
                     sb.Append(" = [];");
                 else if (IsReferenceTypeNeedingNullForgiving(field.Type, propertyType))
@@ -47,16 +56,25 @@ internal sealed partial class SchemaGenerator
 
         sb.AppendLine("}");
         return new GeneratedFile($"Types/Objects/{typeName}.cs", sb.ToString());
+        }
+        finally
+        {
+            sb.Dispose();
+        }
     }
 
     private GeneratedFile GenerateInputType(GraphQLInputObjectTypeDefinition input)
     {
         string typeName = CSharpNaming.ToClrTypeName(NameOf(input.Name));
         string? description = GetDescription(input.Description);
-        var sb = new StringBuilder();
-        AppendHeader(sb);
-        AppendDescription(sb, description, 0);
-        sb.Append("public sealed partial class ").Append(typeName).AppendLine();
+        var sb = new PooledStringBuilder();
+        try
+        {
+        AppendHeader(ref sb);
+        AppendDescription(ref sb, description, 0);
+        sb.Append("public sealed partial class ");
+        sb.Append(typeName);
+        sb.AppendLine();
         sb.AppendLine("{");
 
         if (input.Fields?.Items is { Count: > 0 })
@@ -66,8 +84,12 @@ internal sealed partial class SchemaGenerator
                 string propertyType = MapInputType(field.Type);
                 string propertyName = CSharpNaming.ToClrPropertyName(NameOf(field.Name), typeName);
                 string? fieldDescription = GetDescription(field.Description);
-                AppendDescription(sb, fieldDescription, 1);
-                sb.Append("    public ").Append(propertyType).Append(' ').Append(propertyName).Append(" { get; init; }");
+                AppendDescription(ref sb, fieldDescription, 1);
+                sb.Append("    public ");
+                sb.Append(propertyType);
+                sb.Append(' ');
+                sb.Append(propertyName);
+                sb.Append(" { get; init; }");
                 if (ShouldInitializeCollection(field.Type, propertyType))
                     sb.Append(" = [];");
                 else if (IsReferenceTypeNeedingNullForgiving(field.Type, propertyType))
@@ -79,16 +101,25 @@ internal sealed partial class SchemaGenerator
 
         sb.AppendLine("}");
         return new GeneratedFile($"Types/Inputs/{typeName}.cs", sb.ToString());
+        }
+        finally
+        {
+            sb.Dispose();
+        }
     }
 
     private GeneratedFile GenerateEnumType(GraphQLEnumTypeDefinition enm)
     {
         string typeName = CSharpNaming.ToClrTypeName(NameOf(enm.Name));
         string? description = GetDescription(enm.Description);
-        var sb = new StringBuilder();
-        AppendHeader(sb);
-        AppendDescription(sb, description, 0);
-        sb.Append("public enum ").Append(typeName).AppendLine();
+        var sb = new PooledStringBuilder();
+        try
+        {
+        AppendHeader(ref sb);
+        AppendDescription(ref sb, description, 0);
+        sb.Append("public enum ");
+        sb.Append(typeName);
+        sb.AppendLine();
         sb.AppendLine("{");
 
         if (enm.Values?.Items is { Count: > 0 })
@@ -98,8 +129,9 @@ internal sealed partial class SchemaGenerator
                 GraphQLEnumValueDefinition value = enm.Values.Items[i];
                 string memberName = CSharpNaming.ToClrEnumMemberName(NameOf(value.Name));
                 string? valueDescription = GetDescription(value.Description);
-                AppendDescription(sb, valueDescription, 1);
-                sb.Append("    ").Append(memberName);
+                AppendDescription(ref sb, valueDescription, 1);
+                sb.Append("    ");
+                sb.Append(memberName);
                 if (i < enm.Values.Items.Count - 1)
                     sb.Append(',');
                 sb.AppendLine();
@@ -109,16 +141,25 @@ internal sealed partial class SchemaGenerator
 
         sb.AppendLine("}");
         return new GeneratedFile($"Types/Enums/{typeName}.cs", sb.ToString());
+        }
+        finally
+        {
+            sb.Dispose();
+        }
     }
 
     private GeneratedFile GenerateInterfaceType(GraphQLInterfaceTypeDefinition iface)
     {
         string typeName = CSharpNaming.ToClrTypeName(NameOf(iface.Name));
         string? description = GetDescription(iface.Description);
-        var sb = new StringBuilder();
-        AppendHeader(sb);
-        AppendDescription(sb, description, 0);
-        sb.Append("public interface ").Append(typeName).AppendLine();
+        var sb = new PooledStringBuilder();
+        try
+        {
+        AppendHeader(ref sb);
+        AppendDescription(ref sb, description, 0);
+        sb.Append("public interface ");
+        sb.Append(typeName);
+        sb.AppendLine();
         sb.AppendLine("{");
 
         if (iface.Fields?.Items is { Count: > 0 })
@@ -128,27 +169,46 @@ internal sealed partial class SchemaGenerator
                 string propertyType = MapOutputType(field.Type);
                 string propertyName = CSharpNaming.ToClrPropertyName(NameOf(field.Name), typeName);
                 string? fieldDescription = GetDescription(field.Description);
-                AppendDescription(sb, fieldDescription, 1);
-                sb.Append("    ").Append(propertyType).Append(' ').Append(propertyName).Append(" { get; }").AppendLine();
+                AppendDescription(ref sb, fieldDescription, 1);
+                sb.Append("    ");
+                sb.Append(propertyType);
+                sb.Append(' ');
+                sb.Append(propertyName);
+                sb.Append(" { get; }");
+                sb.AppendLine();
                 sb.AppendLine();
             }
         }
 
         sb.AppendLine("}");
         return new GeneratedFile($"Types/Interfaces/{typeName}.cs", sb.ToString());
+        }
+        finally
+        {
+            sb.Dispose();
+        }
     }
 
     private GeneratedFile GenerateUnionType(GraphQLUnionTypeDefinition union)
     {
         string typeName = CSharpNaming.ToClrTypeName(NameOf(union.Name));
         string? description = GetDescription(union.Description);
-        var sb = new StringBuilder();
-        AppendHeader(sb);
-        AppendDescription(sb, description, 0);
-        sb.Append("public interface ").Append(typeName).AppendLine();
+        var sb = new PooledStringBuilder();
+        try
+        {
+        AppendHeader(ref sb);
+        AppendDescription(ref sb, description, 0);
+        sb.Append("public interface ");
+        sb.Append(typeName);
+        sb.AppendLine();
         sb.AppendLine("{");
         sb.AppendLine("}");
         return new GeneratedFile($"Types/Unions/{typeName}.cs", sb.ToString());
+        }
+        finally
+        {
+            sb.Dispose();
+        }
     }
 
     private GeneratedFile GenerateScalarAlias(GraphQLScalarTypeDefinition scalar)
@@ -156,10 +216,21 @@ internal sealed partial class SchemaGenerator
         string typeName = CSharpNaming.ToClrTypeName(NameOf(scalar.Name));
         string? description = GetDescription(scalar.Description);
         string mappedType = MapNamedType(NameOf(scalar.Name), nullable: false);
-        var sb = new StringBuilder();
-        AppendHeader(sb);
-        AppendDescription(sb, description, 0);
-        sb.Append("global using ").Append(typeName).Append(" = ").Append(mappedType).AppendLine(";");
+        var sb = new PooledStringBuilder();
+        try
+        {
+        AppendHeader(ref sb);
+        AppendDescription(ref sb, description, 0);
+        sb.Append("global using ");
+        sb.Append(typeName);
+        sb.Append(" = ");
+        sb.Append(mappedType);
+        sb.AppendLine(";");
         return new GeneratedFile($"Types/Scalars/{typeName}.global.cs", sb.ToString());
+        }
+        finally
+        {
+            sb.Dispose();
+        }
     }
 }

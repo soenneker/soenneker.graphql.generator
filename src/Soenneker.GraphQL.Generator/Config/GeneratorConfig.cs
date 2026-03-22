@@ -5,8 +5,8 @@ namespace Soenneker.GraphQL.Generator.Config;
 /// </summary>
 public sealed class GeneratorConfig
 {
-    /// <summary>Path to the GraphQL SDL schema file (used by CLI/host).</summary>
-    public required string SchemaPath { get; init; }
+    /// <summary>Path to the GraphQL SDL schema file (used by config-file based generation).</summary>
+    public string? SchemaPath { get; init; }
 
     /// <summary>Directory where generated files will be written (used by CLI/host).</summary>
     public required string OutputDirectory { get; init; }

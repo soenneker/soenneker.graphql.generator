@@ -4,9 +4,9 @@ using Xunit;
 namespace Soenneker.GraphQL.Generator.Tests;
 
 [Collection("Collection")]
-public sealed class GraphQLGeneratorTests : FixturedUnitTest
+public sealed class GraphQlGeneratorTests : FixturedUnitTest
 {
-    public GraphQLGeneratorTests(Fixture fixture, ITestOutputHelper output) : base(fixture, output)
+    public GraphQlGeneratorTests(Fixture fixture, ITestOutputHelper output) : base(fixture, output)
     {
     }
 

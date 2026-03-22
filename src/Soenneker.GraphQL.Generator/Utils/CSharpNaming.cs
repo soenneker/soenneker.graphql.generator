@@ -1,4 +1,4 @@
-using System.Text;
+using Soenneker.Utils.PooledStringBuilders;
 
 namespace Soenneker.GraphQL.Generator.Utils;
 
@@ -7,7 +7,7 @@ namespace Soenneker.GraphQL.Generator.Utils;
 /// </summary>
 internal static class CSharpNaming
 {
-    private static readonly HashSet<string> CSharpKeywords = new(StringComparer.Ordinal)
+    private static readonly HashSet<string> _cSharpKeywords = new(StringComparer.Ordinal)
     {
         "abstract", "as", "base", "bool", "break", "byte", "case", "catch", "char", "checked",
         "class", "const", "continue", "decimal", "default", "delegate", "do", "double", "else",
@@ -52,28 +52,35 @@ internal static class CSharpNaming
         if (string.IsNullOrWhiteSpace(value))
             return "_";
 
-        var sb = new StringBuilder(value.Length);
+        var sb = new PooledStringBuilder(value.Length);
 
-        foreach (char c in value)
+        try
         {
-            if (char.IsLetterOrDigit(c) || c == '_')
-                sb.Append(c);
-            else
-                sb.Append('_');
+            foreach (char c in value)
+            {
+                if (char.IsLetterOrDigit(c) || c == '_')
+                    sb.Append(c);
+                else
+                    sb.Append('_');
+            }
+
+            string result = sb.ToString();
+
+            if (result.Length == 0)
+                return "_";
+
+            if (char.IsDigit(result[0]))
+                result = "_" + result;
+
+            if (_cSharpKeywords.Contains(result))
+                result = "@" + result;
+
+            return result;
         }
-
-        string result = sb.ToString();
-
-        if (result.Length == 0)
-            return "_";
-
-        if (char.IsDigit(result[0]))
-            result = "_" + result;
-
-        if (CSharpKeywords.Contains(result))
-            result = "@" + result;
-
-        return result;
+        finally
+        {
+            sb.Dispose();
+        }
     }
 
     public static string ToPascalCase(string value)
@@ -88,28 +95,35 @@ internal static class CSharpNaming
         if (parts.Length == 0)
             return hasAtPrefix ? "@_" : "_";
 
-        var sb = new StringBuilder(core.Length);
+        var sb = new PooledStringBuilder(core.Length);
 
-        foreach (string part in parts)
+        try
         {
-            if (part.Length == 0)
-                continue;
-
-            if (part.Length == 1)
+            foreach (string part in parts)
             {
+                if (part.Length == 0)
+                    continue;
+
+                if (part.Length == 1)
+                {
+                    sb.Append(char.ToUpperInvariant(part[0]));
+                    continue;
+                }
+
                 sb.Append(char.ToUpperInvariant(part[0]));
-                continue;
+                sb.Append(part.AsSpan(1));
             }
 
-            sb.Append(char.ToUpperInvariant(part[0]));
-            sb.Append(part.AsSpan(1));
+            string result = sb.ToString();
+            return hasAtPrefix ? "@" + result : result;
         }
-
-        string result = sb.ToString();
-        return hasAtPrefix ? "@" + result : result;
+        finally
+        {
+            sb.Dispose();
+        }
     }
 
-    public static bool IsReservedKeyword(string value) => CSharpKeywords.Contains(value);
+    public static bool IsReservedKeyword(string value) => _cSharpKeywords.Contains(value);
 
     /// <summary>
     /// Returns a C#-safe parameter/variable name (with @ prefix when the name is a reserved keyword).
@@ -118,7 +132,7 @@ internal static class CSharpNaming
     public static string SafeParameterName(string camelCaseName)
     {
         if (string.IsNullOrEmpty(camelCaseName)) return camelCaseName;
-        return CSharpKeywords.Contains(camelCaseName) ? "@" + camelCaseName : camelCaseName;
+        return _cSharpKeywords.Contains(camelCaseName) ? "@" + camelCaseName : camelCaseName;
     }
 
     public static string ToCamelCase(string value)
@@ -204,13 +218,13 @@ internal static class CSharpNaming
 
     /// <summary>
     /// Known operation verb suffixes used to group under a resource folder (Kiota-style).
-    /// e.g. blogCreate → Blog/Create, articleDelete → Article/Delete.
+    /// e.g. blogCreate -> Blog/Create, articleDelete -> Article/Delete.
     /// </summary>
-    private static readonly string[] OperationSuffixes = ["Create", "Delete", "Update", "Add", "Remove", "Merge"];
+    private static readonly string[] _operationSuffixes = ["Create", "Delete", "Update", "Add", "Remove", "Merge"];
 
     /// <summary>
     /// Returns folder path segments for Kiota-style layout: (resourceFolder, operationFolder?).
-    /// e.g. blogCreate → ("Blog", "Create"), customerMerge → ("Customer", "Merge"), getViewer → ("GetViewer", null).
+    /// e.g. blogCreate -> ("Blog", "Create"), customerMerge -> ("Customer", "Merge"), getViewer -> ("GetViewer", null).
     /// When operationFolder is null, use a single segment: Clients/Resource/.
     /// </summary>
     public static (string ResourceFolder, string? OperationFolder) GetOperationPathSegments(string fieldName)
@@ -218,7 +232,7 @@ internal static class CSharpNaming
         string clr = ToClrTypeName(fieldName);
         if (string.IsNullOrEmpty(clr)) return (clr, null);
 
-        foreach (string suffix in OperationSuffixes)
+        foreach (string suffix in _operationSuffixes)
         {
             if (clr.EndsWith(suffix, StringComparison.Ordinal) && clr.Length > suffix.Length)
             {

@@ -1,6 +1,8 @@
 using System.Diagnostics;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using Soenneker.Extensions.String;
+using Soenneker.Extensions.ValueTask;
 using Soenneker.GraphQL.Generator.Abstract;
 using Soenneker.GraphQL.Generator.Dtos;
 
@@ -10,13 +12,13 @@ public sealed class ConsoleHostedService : IHostedService
 {
     private readonly ILogger<ConsoleHostedService> _logger;
     private readonly IHostApplicationLifetime _appLifetime;
-    private readonly IGraphQLGenerator _graphQlGenerator;
+    private readonly IGraphQlGenerator _graphQlGenerator;
     private readonly CliOptions _cliOptions;
 
     private int? _exitCode;
 
     public ConsoleHostedService(ILogger<ConsoleHostedService> logger, IHostApplicationLifetime appLifetime,
-        IGraphQLGenerator graphQlGenerator, CliOptions cliOptions)
+        IGraphQlGenerator graphQlGenerator, CliOptions cliOptions)
     {
         _logger = logger;
         _appLifetime = appLifetime;
@@ -34,7 +36,7 @@ public sealed class ConsoleHostedService : IHostedService
                 {
                     if (!CliOptions.TryGetConfigPath(_cliOptions.Args, out string? configPath, out string? error, out bool showUsage, out int exitCode))
                     {
-                        if (!string.IsNullOrWhiteSpace(error))
+                        if (error.HasContent())
                             await Console.Error.WriteLineAsync(error);
 
                         if (showUsage)
@@ -44,7 +46,7 @@ public sealed class ConsoleHostedService : IHostedService
                         return;
                     }
 
-                    GenerationRunResult result = await _graphQlGenerator.Generate(configPath!, cancellationToken).ConfigureAwait(false);
+                    GenerationRunResult result = await _graphQlGenerator.RunFromConfig(configPath!, cancellationToken).NoSync();
 
                     Console.WriteLine($"Generated {result.Result.Files.Count} file(s) into '{result.OutputDirectory}'.");
                     Console.WriteLine($"Objects: {result.Result.ObjectCount}");
