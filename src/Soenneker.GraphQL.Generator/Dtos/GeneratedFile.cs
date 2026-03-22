@@ -1,4 +1,4 @@
-namespace Soenneker.GraphQL.Generator.Models;
+namespace Soenneker.GraphQL.Generator.Dtos;
 
 /// <summary>
 /// A single generated C# file with relative path and content.

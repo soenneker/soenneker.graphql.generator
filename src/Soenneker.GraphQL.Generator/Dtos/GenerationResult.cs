@@ -1,4 +1,4 @@
-namespace Soenneker.GraphQL.Generator.Models;
+namespace Soenneker.GraphQL.Generator.Dtos;
 
 /// <summary>
 /// Result of a GraphQL schema generation run: generated files and type counts.

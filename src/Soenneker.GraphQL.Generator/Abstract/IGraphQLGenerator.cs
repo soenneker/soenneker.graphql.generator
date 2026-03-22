@@ -1,5 +1,5 @@
 using Soenneker.GraphQL.Generator.Config;
-using Soenneker.GraphQL.Generator.Models;
+using Soenneker.GraphQL.Generator.Dtos;
 
 namespace Soenneker.GraphQL.Generator.Abstract;
 
@@ -16,4 +16,12 @@ public interface IGraphQLGenerator
     /// <returns>Generated files and type counts. Caller is responsible for writing files to disk.</returns>
     /// <exception cref="Exception">When the schema is invalid or parsing fails.</exception>
     GenerationResult Generate(string schemaContent, GeneratorConfig config);
+
+    /// <summary>
+    /// Reads configuration and schema from disk, generates source files, and writes them to the configured output directory.
+    /// </summary>
+    /// <param name="configPath">Path to the generator config JSON file.</param>
+    /// <param name="cancellationToken">A token used to cancel the generation run.</param>
+    /// <returns>The generation summary and resolved output directory.</returns>
+    ValueTask<GenerationRunResult> Generate(string configPath, CancellationToken cancellationToken = default);
 }

@@ -1,5 +1,4 @@
 using System.Text;
-using GraphQLParser.AST;
 
 namespace Soenneker.GraphQL.Generator.Generators;
 

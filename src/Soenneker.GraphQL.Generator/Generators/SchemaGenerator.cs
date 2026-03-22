@@ -1,7 +1,6 @@
-using GraphQLParser;
 using GraphQLParser.AST;
 using Soenneker.GraphQL.Generator.Config;
-using Soenneker.GraphQL.Generator.Models;
+using Soenneker.GraphQL.Generator.Dtos;
 using Soenneker.GraphQL.Generator.Utils;
 
 namespace Soenneker.GraphQL.Generator.Generators;

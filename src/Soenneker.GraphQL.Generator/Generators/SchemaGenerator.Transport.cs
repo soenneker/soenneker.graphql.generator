@@ -1,5 +1,5 @@
 using System.Text;
-using Soenneker.GraphQL.Generator.Models;
+using Soenneker.GraphQL.Generator.Dtos;
 
 namespace Soenneker.GraphQL.Generator.Generators;
 
