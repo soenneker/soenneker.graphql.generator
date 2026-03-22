@@ -9,9 +9,9 @@
   </Folder>
   <Folder Name="/src/">
     <Project Path="src/Soenneker.GraphQL.Generator/Soenneker.GraphQL.Generator.csproj" />
+    <Project Path="cli/Soenneker.GraphQL.Generator.Cli/Soenneker.GraphQL.Generator.Cli.csproj" />
   </Folder>
   <Folder Name="/test/">
     <Project Path="test/Soenneker.GraphQL.Generator.Tests/Soenneker.GraphQL.Generator.Tests.csproj" />
   </Folder>
-  <Project Path="cli/Soenneker.GraphQL.Generator.Cli/Soenneker.GraphQL.Generator.Cli.csproj" />
 </Solution>
