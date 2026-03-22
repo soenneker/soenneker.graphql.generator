@@ -2,6 +2,7 @@
   "SchemaPath": "./schema.graphql",
   "OutputDirectory": "./Generated",
   "Namespace": "MyApp.Generated",
+  "EntryClientName": "ShopifyGraphQlClient",
   "IdClrType": "string",
   "EmitRootTypes": true,
   "EmitScalarAliases": false,

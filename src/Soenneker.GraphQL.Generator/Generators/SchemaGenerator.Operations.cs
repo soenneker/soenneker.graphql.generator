@@ -12,19 +12,24 @@ internal sealed partial class SchemaGenerator
 {
     private GeneratedFile GenerateGraphQlClientRoot(GraphQLObjectTypeDefinition? queryRoot, GraphQLObjectTypeDefinition? mutationRoot)
     {
+        string entryClientName = GetEntryClientTypeName();
         var sb = new PooledStringBuilder();
         try
         {
         AppendHeader(ref sb);
-        AppendDescription(ref sb, "Root GraphQL client; exposes one request builder per query and mutation operation. Create with: new GraphQlClient(new GraphQlHttpClient(httpClient)) or pass any IGraphQlClient implementation.", 0);
-        sb.AppendLine("public sealed partial class GraphQlClient");
+        AppendDescription(ref sb, $"Root GraphQL client; exposes one request builder per query and mutation operation. Create with: new {entryClientName}(new GraphQlHttpClient(httpClient)) or pass any IGraphQlClient implementation.", 0);
+        sb.Append("public sealed partial class ");
+        sb.Append(entryClientName);
+        sb.AppendLine();
         sb.AppendLine("{");
         sb.AppendLine("    private readonly IGraphQlClient _graphQlClient;");
         sb.AppendLine();
         sb.AppendLine("    /// <summary>");
         sb.AppendLine("    /// Creates a GraphQL client. Pass an IGraphQlClient implementation, e.g. <c>new GraphQlHttpClient(httpClient)</c> for HTTP.");
         sb.AppendLine("    /// </summary>");
-        sb.AppendLine("    public GraphQlClient(IGraphQlClient graphQlClient)");
+        sb.Append("    public ");
+        sb.Append(entryClientName);
+        sb.AppendLine("(IGraphQlClient graphQlClient)");
         sb.AppendLine("    {");
         sb.AppendLine("        _graphQlClient = graphQlClient;");
         sb.AppendLine("    }");
@@ -53,6 +58,27 @@ internal sealed partial class SchemaGenerator
             }
         }
 
+        IReadOnlyList<OperationGroup> mutationGroups = GetOperationGroups(mutationRoot);
+
+        foreach (OperationGroup group in mutationGroups)
+        {
+            string builderName = CSharpNaming.ToOperationGroupBuilderName(group.ResourceName);
+            string propertyName = CSharpNaming.ToClrPropertyName(group.ResourceName, entryClientName);
+            sb.AppendLine("    /// <summary>");
+            sb.Append("    /// Builds and executes grouped mutations for the '");
+            sb.Append(CSharpNaming.ToCamelCase(group.ResourceName));
+            sb.Append("' resource.</summary>");
+            sb.AppendLine();
+            sb.Append("    public ");
+            sb.Append(builderName);
+            sb.Append(' ');
+            sb.Append(propertyName);
+            sb.Append(" => new ");
+            sb.Append(builderName);
+            sb.AppendLine("(_graphQlClient);");
+            sb.AppendLine();
+        }
+
         if (mutationRoot?.Fields?.Items is { Count: > 0 })
         {
             foreach (GraphQLFieldDefinition field in mutationRoot.Fields.Items)
@@ -77,7 +103,7 @@ internal sealed partial class SchemaGenerator
         }
 
         sb.AppendLine("}");
-        return new GeneratedFile("Clients/GraphQlClient.cs", sb.ToString());
+        return new GeneratedFile($"{entryClientName}.cs", sb.ToString());
         }
         finally
         {
@@ -122,7 +148,7 @@ internal sealed partial class SchemaGenerator
     private GeneratedFile GenerateOperationRequestType(GraphQLFieldDefinition field, string requestTypeName, string pathSegment)
     {
         var args = field.Arguments?.Items?.ToList() ?? [];
-        var usings = CreateUsingSet();
+        var usings = CreateUsingSet(["System.Text.Json.Serialization"]);
 
         foreach (GraphQLInputValueDefinition arg in args)
         {
@@ -145,6 +171,9 @@ internal sealed partial class SchemaGenerator
             string propertyName = CSharpNaming.ToClrPropertyName(NameOf(arg.Name), requestTypeName);
             string? argDescription = GetDescription(arg.Description);
             AppendDescription(ref sb, argDescription, 1);
+            sb.Append("    [JsonPropertyName(\"");
+            sb.Append(NameOf(arg.Name));
+            sb.AppendLine("\")]");
             sb.Append("    public ");
             sb.Append(propertyType);
             sb.Append(' ');
@@ -238,26 +267,9 @@ internal sealed partial class SchemaGenerator
 
                 sb.Append("}\";");
                 sb.AppendLine();
-                sb.AppendLine("        object variables = new");
-                sb.AppendLine("        {");
-                for (int i = 0; i < args.Count; i++)
-                {
-                    GraphQLInputValueDefinition arg = args[i];
-                    string clrArgName = CSharpNaming.ToClrPropertyName(NameOf(arg.Name), requestTypeName);
-                    string camel = CSharpNaming.ToCamelCase(clrArgName);
-                    string camelSafe = CSharpNaming.SafeParameterName(camel);
-                    sb.Append("            ");
-                    sb.Append(camelSafe);
-                    sb.Append(" = request.");
-                    sb.Append(clrArgName);
-                    if (i < args.Count - 1)
-                        sb.Append(',');
-                    sb.AppendLine();
-                }
-                sb.AppendLine("        };");
                 sb.Append("        return _graphQlClient.Execute<");
                 sb.Append(wrapperTypeName);
-                sb.Append(">(gqlQuery, variables, cancellationToken);");
+                sb.Append(">(gqlQuery, request, cancellationToken);");
                 sb.AppendLine();
                 sb.AppendLine("    }");
                 sb.AppendLine();
@@ -335,7 +347,7 @@ internal sealed partial class SchemaGenerator
         string fieldClrType = MapOutputType(field.Type);
         string propertyName = CSharpNaming.ToClrPropertyName(fieldName, wrapperTypeName);
         string? description = GetDescription(field.Description);
-        var usings = CreateUsingSet();
+        var usings = CreateUsingSet(["System.Text.Json.Serialization"]);
         AddUsingsForType(usings, fieldClrType);
         var sb = new PooledStringBuilder();
         try
@@ -347,6 +359,9 @@ internal sealed partial class SchemaGenerator
         sb.AppendLine();
         sb.AppendLine("{");
         AppendDescription(ref sb, description, 1);
+        sb.Append("    [JsonPropertyName(\"");
+        sb.Append(fieldName);
+        sb.AppendLine("\")]");
         sb.Append("    public ");
         sb.Append(fieldClrType);
         sb.Append(' ');
@@ -364,6 +379,121 @@ internal sealed partial class SchemaGenerator
         {
             sb.Dispose();
         }
+    }
+
+    private IReadOnlyList<GeneratedFile> GenerateGroupedOperationBuilderFiles(GraphQLObjectTypeDefinition? rootType)
+    {
+        IReadOnlyList<OperationGroup> groups = GetOperationGroups(rootType);
+
+        if (groups.Count == 0)
+            return [];
+
+        var files = new List<GeneratedFile>(groups.Count);
+
+        foreach (OperationGroup group in groups)
+        {
+            files.Add(GenerateGroupedOperationBuilder(group));
+        }
+
+        return files;
+    }
+
+    private GeneratedFile GenerateGroupedOperationBuilder(OperationGroup group)
+    {
+        string builderName = CSharpNaming.ToOperationGroupBuilderName(group.ResourceName);
+        var sb = new PooledStringBuilder();
+
+        try
+        {
+            AppendHeader(ref sb);
+            AppendDescription(ref sb, $"Groups GraphQL mutation builders for the '{CSharpNaming.ToCamelCase(group.ResourceName)}' resource.", 0);
+            sb.Append("public sealed partial class ");
+            sb.Append(builderName);
+            sb.AppendLine();
+            sb.AppendLine("{");
+            sb.AppendLine("    private readonly IGraphQlClient _graphQlClient;");
+            sb.AppendLine();
+            sb.Append("    public ");
+            sb.Append(builderName);
+            sb.AppendLine("(IGraphQlClient graphQlClient)");
+            sb.AppendLine("    {");
+            sb.AppendLine("        _graphQlClient = graphQlClient;");
+            sb.AppendLine("    }");
+            sb.AppendLine();
+
+            foreach (GroupedOperation operation in group.Operations)
+            {
+                string propertyName = CSharpNaming.ToClrPropertyName(operation.ActionName, builderName);
+                sb.AppendLine("    /// <summary>");
+                sb.Append("    /// Builds and executes requests for the '");
+                sb.Append(operation.FieldName);
+                sb.Append("' mutation.</summary>");
+                sb.AppendLine();
+                sb.Append("    public ");
+                sb.Append(operation.RequestBuilderName);
+                sb.Append(' ');
+                sb.Append(propertyName);
+                sb.Append(" => new ");
+                sb.Append(operation.RequestBuilderName);
+                sb.AppendLine("(_graphQlClient);");
+                sb.AppendLine();
+            }
+
+            sb.AppendLine("}");
+            return new GeneratedFile($"Clients/{group.ResourceName}/{builderName}.cs", sb.ToString());
+        }
+        finally
+        {
+            sb.Dispose();
+        }
+    }
+
+    private IReadOnlyList<OperationGroup> GetOperationGroups(GraphQLObjectTypeDefinition? rootType)
+    {
+        if (rootType?.Fields?.Items is not { Count: > 0 })
+            return [];
+
+        var groupedOperations = new Dictionary<string, List<GroupedOperation>>(StringComparer.Ordinal);
+
+        foreach (GraphQLFieldDefinition field in rootType.Fields.Items)
+        {
+            string fieldName = NameOf(field.Name);
+            (string resourceFolder, string? operationFolder) = CSharpNaming.GetOperationPathSegments(fieldName);
+
+            if (string.IsNullOrWhiteSpace(operationFolder))
+                continue;
+
+            if (!groupedOperations.TryGetValue(resourceFolder, out List<GroupedOperation>? operations))
+            {
+                operations = [];
+                groupedOperations[resourceFolder] = operations;
+            }
+
+            operations.Add(new GroupedOperation(fieldName, operationFolder, CSharpNaming.ToOperationRequestBuilderName(fieldName, "Mutation")));
+        }
+
+        return groupedOperations
+            .Where(static kvp => kvp.Value.Count > 1)
+            .OrderBy(static kvp => kvp.Key, StringComparer.Ordinal)
+            .Select(static kvp => new OperationGroup(
+                kvp.Key,
+                kvp.Value
+                    .OrderBy(static operation => operation.ActionName, StringComparer.Ordinal)
+                    .ToList()))
+            .ToList();
+    }
+
+    private sealed record GroupedOperation(string FieldName, string ActionName, string RequestBuilderName);
+    private sealed record OperationGroup(string ResourceName, IReadOnlyList<GroupedOperation> Operations);
+
+    private string GetEntryClientTypeName()
+    {
+        string configuredName = _config.EntryClientName;
+
+        if (string.IsNullOrWhiteSpace(configuredName))
+            configuredName = "GraphQlClient";
+
+        return CSharpNaming.ToClrTypeName(configuredName);
     }
 
     private string BuildSelectionSet(GraphQLType fieldType, int maxDepth)

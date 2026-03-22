@@ -133,7 +133,10 @@ internal sealed partial class SchemaGenerator
             files.AddRange(GenerateOperationArtifacts(queryRoot, "Query"));
 
         if (mutationRoot is not null)
+        {
             files.AddRange(GenerateOperationArtifacts(mutationRoot, "Mutation"));
+            files.AddRange(GenerateGroupedOperationBuilderFiles(mutationRoot));
+        }
 
         if (queryRoot is not null || mutationRoot is not null)
             files.Add(GenerateGraphQlClientRoot(queryRoot, mutationRoot));

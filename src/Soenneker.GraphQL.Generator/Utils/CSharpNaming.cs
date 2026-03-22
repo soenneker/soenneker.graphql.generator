@@ -1,3 +1,4 @@
+using System.Text.RegularExpressions;
 using Soenneker.Utils.PooledStringBuilders;
 
 namespace Soenneker.GraphQL.Generator.Utils;
@@ -7,6 +8,7 @@ namespace Soenneker.GraphQL.Generator.Utils;
 /// </summary>
 internal static class CSharpNaming
 {
+    private static readonly Regex _pascalCaseTokenRegex = new("[A-Z]+(?![a-z])|[A-Z]?[a-z]+|\\d+", RegexOptions.Compiled);
     private static readonly HashSet<string> _cSharpKeywords = new(StringComparer.Ordinal)
     {
         "abstract", "as", "base", "bool", "break", "byte", "case", "catch", "char", "checked",
@@ -212,7 +214,13 @@ internal static class CSharpNaming
     /// Known operation verb suffixes used to group under a resource folder (Kiota-style).
     /// e.g. blogCreate -> Blog/Create, articleDelete -> Article/Delete.
     /// </summary>
-    private static readonly string[] _operationSuffixes = ["Create", "Delete", "Update", "Add", "Remove", "Merge"];
+    private static readonly HashSet<string> _operationActionStarters = new(StringComparer.Ordinal)
+    {
+        "Accept", "Acknowledge", "Activate", "Add", "Approve", "Assign", "Calculate", "Cancel", "Change", "Close", "Complete",
+        "Create", "Deactivate", "Delete", "Duplicate", "Extend", "Generate", "Get", "Hold", "Invite", "Mark", "Merge", "Move",
+        "Open", "Pause", "Publish", "Receive", "Redeem", "Reject", "Release", "Remove", "Replace", "Request", "Resume", "Revoke",
+        "Run", "Send", "Set", "Split", "Submit", "Trigger", "Unpublish", "Update", "Upsert"
+    };
 
     /// <summary>
     /// Returns folder path segments for Kiota-style layout: (resourceFolder, operationFolder?).
@@ -224,16 +232,35 @@ internal static class CSharpNaming
         string clr = ToClrTypeName(fieldName);
         if (string.IsNullOrEmpty(clr)) return (clr, null);
 
-        foreach (string suffix in _operationSuffixes)
+        List<string> tokens = SplitPascalCaseTokens(clr);
+
+        for (int i = 1; i < tokens.Count; i++)
         {
-            if (clr.EndsWith(suffix, StringComparison.Ordinal) && clr.Length > suffix.Length)
-            {
-                string resource = clr[..^suffix.Length];
-                if (resource.Length > 0)
-                    return (resource, suffix);
-            }
+            if (!_operationActionStarters.Contains(tokens[i]))
+                continue;
+
+            string resource = string.Concat(tokens.Take(i));
+            string operation = string.Concat(tokens.Skip(i));
+
+            if (resource.Length > 0 && operation.Length > 0)
+                return (resource, operation);
         }
 
         return (clr, null);
+    }
+
+    public static string ToOperationGroupBuilderName(string resourceName) => resourceName + "Builder";
+
+    private static List<string> SplitPascalCaseTokens(string value)
+    {
+        var tokens = new List<string>();
+
+        foreach (Match match in _pascalCaseTokenRegex.Matches(value))
+        {
+            if (match.Success && match.Length > 0)
+                tokens.Add(match.Value);
+        }
+
+        return tokens;
     }
 }

@@ -30,8 +30,11 @@ gql2cs --config ./gql2cs.json
 var config = new GeneratorConfig
 {
     Namespace = "MyCompany.MyApi.GraphQL",
+    EntryClientName = "MyApiClient",
     OutputDirectory = "./Generated"
 };
 
 await graphQlGenerator.Generate(schemaSdl, config, cancellationToken);
 ```
+
+The generated entry client is written to the output root as `<EntryClientName>.cs` rather than under the `Clients` folder.

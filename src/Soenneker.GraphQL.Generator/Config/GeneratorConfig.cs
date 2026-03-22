@@ -29,6 +29,9 @@ public sealed class GeneratorConfig
     /// <summary>Name of the generated JsonSerializerContext class. Default: <c>GraphQlJsonContext</c>.</summary>
     public string JsonSerializerContextName { get; init; } = "GraphQlJsonContext";
 
+    /// <summary>Name of the generated entry client class. Default: <c>GraphQlClient</c>.</summary>
+    public string EntryClientName { get; init; } = "GraphQlClient";
+
     /// <summary>Whether to emit Query and Mutation operation clients. Default: <c>true</c>.</summary>
     public bool EmitOperationClients { get; init; } = true;
 

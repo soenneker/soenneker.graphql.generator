@@ -14,7 +14,7 @@ internal sealed partial class SchemaGenerator
     {
         string typeName = CSharpNaming.ToClrTypeName(NameOf(obj.Name));
         string? description = GetDescription(obj.Description);
-        var usings = CreateUsingSet();
+        var usings = CreateUsingSet(["System.Text.Json.Serialization"]);
 
         if (obj.Fields?.Items is { Count: > 0 })
         {
@@ -51,6 +51,9 @@ internal sealed partial class SchemaGenerator
                 string propertyName = CSharpNaming.ToClrPropertyName(NameOf(field.Name), typeName);
                 string? fieldDescription = GetDescription(field.Description);
                 AppendDescription(ref sb, fieldDescription, 1);
+                sb.Append("    [JsonPropertyName(\"");
+                sb.Append(NameOf(field.Name));
+                sb.AppendLine("\")]");
                 sb.Append("    public ");
                 sb.Append(propertyType);
                 sb.Append(' ');
@@ -78,7 +81,7 @@ internal sealed partial class SchemaGenerator
     {
         string typeName = CSharpNaming.ToClrTypeName(NameOf(input.Name));
         string? description = GetDescription(input.Description);
-        var usings = CreateUsingSet();
+        var usings = CreateUsingSet(["System.Text.Json.Serialization"]);
 
         if (input.Fields?.Items is { Count: > 0 })
         {
@@ -107,6 +110,9 @@ internal sealed partial class SchemaGenerator
                 string propertyName = CSharpNaming.ToClrPropertyName(NameOf(field.Name), typeName);
                 string? fieldDescription = GetDescription(field.Description);
                 AppendDescription(ref sb, fieldDescription, 1);
+                sb.Append("    [JsonPropertyName(\"");
+                sb.Append(NameOf(field.Name));
+                sb.AppendLine("\")]");
                 sb.Append("    public ");
                 sb.Append(propertyType);
                 sb.Append(' ');
