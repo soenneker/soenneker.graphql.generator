@@ -128,18 +128,19 @@ internal sealed partial class SchemaGenerator
         var files = new List<GeneratedFile>();
         GraphQLObjectTypeDefinition? queryRoot = FindObjectType(_config.QueryRootTypeName);
         GraphQLObjectTypeDefinition? mutationRoot = FindObjectType(_config.MutationRootTypeName);
+        IReadOnlyList<OperationLayout> queryLayouts = GetOperationLayouts(queryRoot, "Query");
+        IReadOnlyList<OperationLayout> mutationLayouts = GetOperationLayouts(mutationRoot, "Mutation");
 
         if (queryRoot is not null)
-            files.AddRange(GenerateOperationArtifacts(queryRoot, "Query"));
+            files.AddRange(GenerateOperationArtifacts(queryRoot, queryLayouts, "Query"));
 
         if (mutationRoot is not null)
-        {
-            files.AddRange(GenerateOperationArtifacts(mutationRoot, "Mutation"));
-            files.AddRange(GenerateGroupedOperationBuilderFiles(mutationRoot));
-        }
+            files.AddRange(GenerateOperationArtifacts(mutationRoot, mutationLayouts, "Mutation"));
+
+        files.AddRange(GenerateGroupedOperationBuilderFiles(queryLayouts, mutationLayouts));
 
         if (queryRoot is not null || mutationRoot is not null)
-            files.Add(GenerateGraphQlClientRoot(queryRoot, mutationRoot));
+            files.Add(GenerateGraphQlClientRoot(queryLayouts, mutationLayouts));
 
         return files;
     }
