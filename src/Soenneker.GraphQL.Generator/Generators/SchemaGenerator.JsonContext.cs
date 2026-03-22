@@ -49,12 +49,11 @@ internal sealed partial class SchemaGenerator
                 allTypes.Add(CSharpNaming.ToOperationDataTypeName(NameOf(field.Name), "Mutation"));
         }
 
+        var usings = CreateUsingSet(["System.Text.Json.Serialization"]);
         var sb = new PooledStringBuilder();
         try
         {
-        AppendHeader(ref sb);
-        sb.AppendLine("using System.Text.Json.Serialization;");
-        sb.AppendLine();
+        AppendHeader(ref sb, usings);
         sb.AppendLine("[JsonSourceGenerationOptions(");
         sb.AppendLine("    PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,");
         sb.AppendLine("    DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,");

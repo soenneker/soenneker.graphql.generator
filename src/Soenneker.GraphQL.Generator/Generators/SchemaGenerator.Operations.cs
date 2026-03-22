@@ -16,9 +16,6 @@ internal sealed partial class SchemaGenerator
         try
         {
         AppendHeader(ref sb);
-        sb.AppendLine("using System.Threading;");
-        sb.AppendLine("using System.Threading.Tasks;");
-        sb.AppendLine();
         AppendDescription(ref sb, "Root GraphQL client; exposes one request builder per query and mutation operation. Create with: new GraphQlClient(new GraphQlHttpClient(httpClient)) or pass any IGraphQlClient implementation.", 0);
         sb.AppendLine("public sealed partial class GraphQlClient");
         sb.AppendLine("{");
@@ -125,10 +122,18 @@ internal sealed partial class SchemaGenerator
     private GeneratedFile GenerateOperationRequestType(GraphQLFieldDefinition field, string requestTypeName, string pathSegment)
     {
         var args = field.Arguments?.Items?.ToList() ?? [];
+        var usings = CreateUsingSet();
+
+        foreach (GraphQLInputValueDefinition arg in args)
+        {
+            string propertyType = MapInputType(arg.Type);
+            AddUsingsForType(usings, propertyType);
+        }
+
         var sb = new PooledStringBuilder();
         try
         {
-        AppendHeader(ref sb);
+        AppendHeader(ref sb, usings);
         AppendDescription(ref sb, $"Request parameters for the '{NameOf(field.Name)}' GraphQL operation.", 0);
         sb.Append("public sealed class ");
         sb.Append(requestTypeName);
@@ -173,14 +178,12 @@ internal sealed partial class SchemaGenerator
         string variableDefinitions = BuildOperationVariableDefinitions(args);
         string fieldArguments = BuildFieldArgumentList(args);
         string gqlOperationType = operationKind.Equals("Mutation", StringComparison.Ordinal) ? "mutation" : "query";
+        var usings = CreateUsingSet(["System.Threading", "System.Threading.Tasks", "Soenneker.Extensions.ValueTask"]);
 
         var sb = new PooledStringBuilder();
         try
         {
-            AppendHeader(ref sb);
-            sb.AppendLine("using System.Threading;");
-            sb.AppendLine("using System.Threading.Tasks;");
-            sb.AppendLine();
+            AppendHeader(ref sb, usings);
             AppendDescription(ref sb, $"Builds and executes requests for the '{fieldName}' GraphQL {gqlOperationType}.", 0);
             sb.Append("public sealed partial class ");
             sb.Append(requestBuilderName);
@@ -199,9 +202,9 @@ internal sealed partial class SchemaGenerator
             if (requestTypeName is not null)
             {
                 AppendDescription(ref sb, $"Executes the GraphQL {gqlOperationType} '{fieldName}' with the given request parameters.", 1);
-                sb.Append("    public Task<GraphQlResponse<");
+                sb.Append("    public ValueTask<GraphQlResponse<");
                 sb.Append(wrapperTypeName);
-                sb.Append(">> ExecuteAsync(");
+                sb.Append(">> Execute(");
                 sb.Append(requestTypeName);
                 sb.Append(" request, CancellationToken cancellationToken = default)");
                 sb.AppendLine();
@@ -252,23 +255,23 @@ internal sealed partial class SchemaGenerator
                     sb.AppendLine();
                 }
                 sb.AppendLine("        };");
-                sb.Append("        return _graphQlClient.ExecuteAsync<");
+                sb.Append("        return _graphQlClient.Execute<");
                 sb.Append(wrapperTypeName);
                 sb.Append(">(gqlQuery, variables, cancellationToken);");
                 sb.AppendLine();
                 sb.AppendLine("    }");
                 sb.AppendLine();
                 AppendDescription(ref sb, $"Executes the operation and returns only the '{fieldName}' value from the GraphQL data envelope.", 1);
-                sb.Append("    public async Task<");
+                sb.Append("    public async ValueTask<");
                 sb.Append(nullableResultType);
-                sb.Append("> GetValueAsync(");
+                sb.Append("> GetValue(");
                 sb.Append(requestTypeName);
                 sb.Append(" request, CancellationToken cancellationToken = default)");
                 sb.AppendLine();
                 sb.AppendLine("    {");
                 sb.Append("        GraphQlResponse<");
                 sb.Append(wrapperTypeName);
-                sb.Append("> response = await ExecuteAsync(request, cancellationToken).NoSync();");
+                sb.Append("> response = await Execute(request, cancellationToken).NoSync();");
                 sb.AppendLine();
                 sb.Append("        return response.Data?.");
                 sb.Append(wrapperPropertyName);
@@ -278,9 +281,9 @@ internal sealed partial class SchemaGenerator
             else
             {
                 AppendDescription(ref sb, $"Executes the GraphQL {gqlOperationType} '{fieldName}'.", 1);
-                sb.Append("    public Task<GraphQlResponse<");
+                sb.Append("    public ValueTask<GraphQlResponse<");
                 sb.Append(wrapperTypeName);
-                sb.Append(">> ExecuteAsync(CancellationToken cancellationToken = default)");
+                sb.Append(">> Execute(CancellationToken cancellationToken = default)");
                 sb.AppendLine();
                 sb.AppendLine("    {");
                 sb.Append("        const string gqlQuery = @\"");
@@ -298,18 +301,18 @@ internal sealed partial class SchemaGenerator
 
                 sb.Append("}\";");
                 sb.AppendLine();
-                sb.AppendLine("        return _graphQlClient.ExecuteAsync<" + wrapperTypeName + ">(gqlQuery, null, cancellationToken);");
+                sb.AppendLine("        return _graphQlClient.Execute<" + wrapperTypeName + ">(gqlQuery, null, cancellationToken);");
                 sb.AppendLine("    }");
                 sb.AppendLine();
                 AppendDescription(ref sb, $"Executes the operation and returns only the '{fieldName}' value from the GraphQL data envelope.", 1);
-                sb.Append("    public async Task<");
+                sb.Append("    public async ValueTask<");
                 sb.Append(nullableResultType);
-                sb.Append("> GetValueAsync(CancellationToken cancellationToken = default)");
+                sb.Append("> GetValue(CancellationToken cancellationToken = default)");
                 sb.AppendLine();
                 sb.AppendLine("    {");
                 sb.Append("        GraphQlResponse<");
                 sb.Append(wrapperTypeName);
-                sb.Append("> response = await ExecuteAsync(cancellationToken).NoSync();");
+                sb.Append("> response = await Execute(cancellationToken).NoSync();");
                 sb.AppendLine();
                 sb.Append("        return response.Data?.");
                 sb.Append(wrapperPropertyName);
@@ -332,10 +335,12 @@ internal sealed partial class SchemaGenerator
         string fieldClrType = MapOutputType(field.Type);
         string propertyName = CSharpNaming.ToClrPropertyName(fieldName, wrapperTypeName);
         string? description = GetDescription(field.Description);
+        var usings = CreateUsingSet();
+        AddUsingsForType(usings, fieldClrType);
         var sb = new PooledStringBuilder();
         try
         {
-        AppendHeader(ref sb);
+        AppendHeader(ref sb, usings);
         AppendDescription(ref sb, $"Response data wrapper for the '{fieldName}' GraphQL operation.", 0);
         sb.Append("public sealed partial class ");
         sb.Append(wrapperTypeName);

@@ -154,32 +154,24 @@ internal static class CSharpNaming
         string clr = ToClrTypeName(fieldName);
 
         if (operationKind.Equals("Query", StringComparison.Ordinal))
-            return "Get" + clr + "Async";
+            return "Get" + clr;
 
         if (operationKind.Equals("Mutation", StringComparison.Ordinal))
-            return clr + "Async";
+            return clr;
 
-        return clr + "Async";
+        return clr;
     }
 
     public static string ToOperationDataTypeName(string fieldName, string operationKind)
     {
         string methodName = ToOperationMethodName(fieldName, operationKind);
-
-        if (methodName.EndsWith("Async", StringComparison.Ordinal))
-            methodName = methodName[..^5];
-
         return methodName + "Data";
     }
 
     public static string ToOperationValueMethodName(string fieldName, string operationKind)
     {
         string methodName = ToOperationMethodName(fieldName, operationKind);
-
-        if (methodName.EndsWith("Async", StringComparison.Ordinal))
-            methodName = methodName[..^5];
-
-        return methodName + "ValueAsync";
+        return methodName + "Value";
     }
 
     /// <summary>

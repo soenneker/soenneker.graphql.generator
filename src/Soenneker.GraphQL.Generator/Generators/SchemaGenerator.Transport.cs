@@ -10,12 +10,11 @@ internal sealed partial class SchemaGenerator
 {
     private GeneratedFile GenerateGraphQlRequestFile()
     {
+        var usings = CreateUsingSet(["System.Text.Json.Serialization"]);
         var sb = new PooledStringBuilder();
         try
         {
-        AppendHeader(ref sb);
-        sb.AppendLine("using System.Text.Json.Serialization;");
-        sb.AppendLine();
+        AppendHeader(ref sb, usings);
         sb.AppendLine("public sealed class GraphQlRequest");
         sb.AppendLine("{");
         sb.AppendLine("    [JsonPropertyName(\"query\")]");
@@ -37,13 +36,11 @@ internal sealed partial class SchemaGenerator
 
     private GeneratedFile GenerateGraphQlErrorFile()
     {
+        var usings = CreateUsingSet(["System.Collections.Generic", "System.Text.Json.Serialization"]);
         var sb = new PooledStringBuilder();
         try
         {
-        AppendHeader(ref sb);
-        sb.AppendLine("using System.Collections.Generic;");
-        sb.AppendLine("using System.Text.Json.Serialization;");
-        sb.AppendLine();
+        AppendHeader(ref sb, usings);
         sb.AppendLine("public sealed class GraphQlError");
         sb.AppendLine("{");
         sb.AppendLine("    [JsonPropertyName(\"message\")]");
@@ -77,13 +74,11 @@ internal sealed partial class SchemaGenerator
 
     private GeneratedFile GenerateGraphQlResponseFile()
     {
+        var usings = CreateUsingSet(["System.Collections.Generic", "System.Text.Json.Serialization"]);
         var sb = new PooledStringBuilder();
         try
         {
-        AppendHeader(ref sb);
-        sb.AppendLine("using System.Collections.Generic;");
-        sb.AppendLine("using System.Text.Json.Serialization;");
-        sb.AppendLine();
+        AppendHeader(ref sb, usings);
         sb.AppendLine("public sealed class GraphQlResponse<T>");
         sb.AppendLine("{");
         sb.AppendLine("    [JsonPropertyName(\"data\")]");
@@ -104,16 +99,14 @@ internal sealed partial class SchemaGenerator
 
     private GeneratedFile GenerateIGraphQlClientFile()
     {
+        var usings = CreateUsingSet(["System.Threading", "System.Threading.Tasks"]);
         var sb = new PooledStringBuilder();
         try
         {
-        AppendHeader(ref sb);
-        sb.AppendLine("using System.Threading;");
-        sb.AppendLine("using System.Threading.Tasks;");
-        sb.AppendLine();
+        AppendHeader(ref sb, usings);
         sb.AppendLine("public interface IGraphQlClient");
         sb.AppendLine("{");
-        sb.AppendLine("    Task<GraphQlResponse<T>> ExecuteAsync<T>(");
+        sb.AppendLine("    ValueTask<GraphQlResponse<T>> Execute<T>(");
         sb.AppendLine("        string query,");
         sb.AppendLine("        object? variables = null,");
         sb.AppendLine("        CancellationToken cancellationToken = default);");
@@ -128,17 +121,20 @@ internal sealed partial class SchemaGenerator
 
     private GeneratedFile GenerateGraphQlHttpClientFile()
     {
+        var usings = CreateUsingSet(
+        [
+            "System",
+            "System.Net.Http",
+            "System.Net.Http.Json",
+            "System.Text.Json",
+            "System.Threading",
+            "System.Threading.Tasks",
+            "Soenneker.Extensions.Task"
+        ]);
         var sb = new PooledStringBuilder();
         try
         {
-        AppendHeader(ref sb);
-        sb.AppendLine("using System;");
-        sb.AppendLine("using System.Net.Http;");
-        sb.AppendLine("using System.Net.Http.Json;");
-        sb.AppendLine("using System.Text.Json;");
-        sb.AppendLine("using System.Threading;");
-        sb.AppendLine("using System.Threading.Tasks;");
-        sb.AppendLine();
+        AppendHeader(ref sb, usings);
         sb.AppendLine("public sealed class GraphQlHttpClient : IGraphQlClient");
         sb.AppendLine("{");
         sb.AppendLine("    private readonly HttpClient _httpClient;");
@@ -150,7 +146,7 @@ internal sealed partial class SchemaGenerator
         sb.AppendLine("        _serializerOptions = serializerOptions ?? new JsonSerializerOptions(JsonSerializerDefaults.Web);");
         sb.AppendLine("    }");
         sb.AppendLine();
-        sb.AppendLine("    public async Task<GraphQlResponse<T>> ExecuteAsync<T>(");
+        sb.AppendLine("    public async ValueTask<GraphQlResponse<T>> Execute<T>(");
         sb.AppendLine("        string query,");
         sb.AppendLine("        object? variables = null,");
         sb.AppendLine("        CancellationToken cancellationToken = default)");

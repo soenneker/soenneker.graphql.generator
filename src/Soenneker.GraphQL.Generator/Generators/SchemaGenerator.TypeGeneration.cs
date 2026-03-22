@@ -14,10 +14,21 @@ internal sealed partial class SchemaGenerator
     {
         string typeName = CSharpNaming.ToClrTypeName(NameOf(obj.Name));
         string? description = GetDescription(obj.Description);
+        var usings = CreateUsingSet();
+
+        if (obj.Fields?.Items is { Count: > 0 })
+        {
+            foreach (GraphQLFieldDefinition field in obj.Fields.Items)
+            {
+                string propertyType = MapOutputType(field.Type);
+                AddUsingsForType(usings, propertyType);
+            }
+        }
+
         var sb = new PooledStringBuilder();
         try
         {
-        AppendHeader(ref sb);
+        AppendHeader(ref sb, usings);
 
         var interfaces = obj.Interfaces?.Items?
             .Select(i => CSharpNaming.ToClrTypeName(NameOf(i.Name)))
@@ -67,10 +78,21 @@ internal sealed partial class SchemaGenerator
     {
         string typeName = CSharpNaming.ToClrTypeName(NameOf(input.Name));
         string? description = GetDescription(input.Description);
+        var usings = CreateUsingSet();
+
+        if (input.Fields?.Items is { Count: > 0 })
+        {
+            foreach (GraphQLInputValueDefinition field in input.Fields.Items)
+            {
+                string propertyType = MapInputType(field.Type);
+                AddUsingsForType(usings, propertyType);
+            }
+        }
+
         var sb = new PooledStringBuilder();
         try
         {
-        AppendHeader(ref sb);
+        AppendHeader(ref sb, usings);
         AppendDescription(ref sb, description, 0);
         sb.Append("public sealed partial class ");
         sb.Append(typeName);
@@ -152,10 +174,21 @@ internal sealed partial class SchemaGenerator
     {
         string typeName = CSharpNaming.ToClrTypeName(NameOf(iface.Name));
         string? description = GetDescription(iface.Description);
+        var usings = CreateUsingSet();
+
+        if (iface.Fields?.Items is { Count: > 0 })
+        {
+            foreach (GraphQLFieldDefinition field in iface.Fields.Items)
+            {
+                string propertyType = MapOutputType(field.Type);
+                AddUsingsForType(usings, propertyType);
+            }
+        }
+
         var sb = new PooledStringBuilder();
         try
         {
-        AppendHeader(ref sb);
+        AppendHeader(ref sb, usings);
         AppendDescription(ref sb, description, 0);
         sb.Append("public interface ");
         sb.Append(typeName);
@@ -216,10 +249,12 @@ internal sealed partial class SchemaGenerator
         string typeName = CSharpNaming.ToClrTypeName(NameOf(scalar.Name));
         string? description = GetDescription(scalar.Description);
         string mappedType = MapNamedType(NameOf(scalar.Name), nullable: false);
+        var usings = CreateUsingSet();
+        AddUsingsForType(usings, mappedType);
         var sb = new PooledStringBuilder();
         try
         {
-        AppendHeader(ref sb);
+        AppendHeader(ref sb, usings);
         AppendDescription(ref sb, description, 0);
         sb.Append("global using ");
         sb.Append(typeName);
