@@ -17,7 +17,7 @@ public static class Startup
     {
         services.AddSingleton(new CliOptions(args));
         services.AddHostedService<ConsoleHostedService>();
-        services.AddGraphQlGeneratorAsScoped();
+        services.AddGraphQlGeneratorAsSingleton();
 
         return services;
     }
