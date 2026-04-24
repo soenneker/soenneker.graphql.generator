@@ -47,6 +47,6 @@
     <ItemGroup>
         <PackageReference Include="GraphQL-Parser" Version="9.5.1" />
         <PackageReference Include="Soenneker.Utils.Directory" Version="4.0.850" />
-        <PackageReference Include="Soenneker.Utils.File" Version="4.0.2151" />
+        <PackageReference Include="Soenneker.Utils.File" Version="4.0.2153" />
     </ItemGroup>
 </Project>
