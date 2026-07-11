@@ -216,6 +216,7 @@ internal sealed partial class SchemaGenerator
         string fieldArguments = BuildFieldArgumentList(args);
         string gqlOperationType = operationKind.Equals("Mutation", StringComparison.Ordinal) ? "mutation" : "query";
         var usings = CreateUsingSet(["System.Threading", "System.Threading.Tasks", "Soenneker.Extensions.ValueTask"]);
+        AddUsingsForType(usings, nullableResultType);
 
         var sb = new PooledStringBuilder();
         try
