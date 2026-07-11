@@ -215,7 +215,7 @@ internal sealed partial class SchemaGenerator
         string variableDefinitions = BuildOperationVariableDefinitions(args);
         string fieldArguments = BuildFieldArgumentList(args);
         string gqlOperationType = operationKind.Equals("Mutation", StringComparison.Ordinal) ? "mutation" : "query";
-        var usings = CreateUsingSet(["System.Threading", "System.Threading.Tasks", "Soenneker.Extensions.ValueTask"]);
+        var usings = CreateUsingSet(["System.Threading", "System.Threading.Tasks"]);
         AddUsingsForType(usings, nullableResultType);
 
         var sb = new PooledStringBuilder();
@@ -292,7 +292,7 @@ internal sealed partial class SchemaGenerator
                 sb.AppendLine("    {");
                 sb.Append("        GraphQlResponse<");
                 sb.Append(wrapperTypeName);
-                sb.Append("> response = await Execute(request, cancellationToken).NoSync();");
+                sb.Append("> response = await Execute(request, cancellationToken).ConfigureAwait(false);");
                 sb.AppendLine();
                 sb.Append("        return response.Data?.");
                 sb.Append(wrapperPropertyName);
@@ -333,7 +333,7 @@ internal sealed partial class SchemaGenerator
                 sb.AppendLine("    {");
                 sb.Append("        GraphQlResponse<");
                 sb.Append(wrapperTypeName);
-                sb.Append("> response = await Execute(cancellationToken).NoSync();");
+                sb.Append("> response = await Execute(cancellationToken).ConfigureAwait(false);");
                 sb.AppendLine();
                 sb.Append("        return response.Data?.");
                 sb.Append(wrapperPropertyName);

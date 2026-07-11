@@ -34,5 +34,11 @@ public sealed class GraphQlGeneratorTests : HostedUnitTest
 
         await Assert.That(requestBuilder.Content).Contains("using System.Collections.Generic;");
         await Assert.That(requestBuilder.Content).Contains("ValueTask<List<string>?> GetValue");
+        await Assert.That(requestBuilder.Content).Contains(".ConfigureAwait(false)");
+        await Assert.That(requestBuilder.Content).DoesNotContain("Soenneker.Extensions");
+
+        GeneratedFile httpClient = result.Files.Single(file => file.RelativePath.EndsWith("GraphQlHttpClient.cs"));
+        await Assert.That(httpClient.Content).Contains(".ConfigureAwait(false)");
+        await Assert.That(httpClient.Content).DoesNotContain("Soenneker.Extensions");
     }
 }

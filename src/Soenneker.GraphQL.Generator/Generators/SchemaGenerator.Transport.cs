@@ -128,8 +128,7 @@ internal sealed partial class SchemaGenerator
             "System.Net.Http.Json",
             "System.Text.Json",
             "System.Threading",
-            "System.Threading.Tasks",
-            "Soenneker.Extensions.Task"
+            "System.Threading.Tasks"
         ]);
         var sb = new PooledStringBuilder();
         try
@@ -157,10 +156,10 @@ internal sealed partial class SchemaGenerator
         sb.AppendLine("            Variables = variables");
         sb.AppendLine("        };");
         sb.AppendLine();
-        sb.AppendLine("        using HttpResponseMessage response = await _httpClient.PostAsJsonAsync(string.Empty, request, _serializerOptions, cancellationToken).NoSync();");
+        sb.AppendLine("        using HttpResponseMessage response = await _httpClient.PostAsJsonAsync(string.Empty, request, _serializerOptions, cancellationToken).ConfigureAwait(false);");
         sb.AppendLine("        response.EnsureSuccessStatusCode();");
         sb.AppendLine();
-        sb.AppendLine("        GraphQlResponse<T>? payload = await response.Content.ReadFromJsonAsync<GraphQlResponse<T>>(_serializerOptions, cancellationToken).NoSync();");
+        sb.AppendLine("        GraphQlResponse<T>? payload = await response.Content.ReadFromJsonAsync<GraphQlResponse<T>>(_serializerOptions, cancellationToken).ConfigureAwait(false);");
         sb.AppendLine("        return payload ?? throw new InvalidOperationException(\"GraphQL response body was null.\");");
         sb.AppendLine("    }");
         sb.AppendLine("}");
