@@ -5,9 +5,7 @@ using Soenneker.Extensions.String;
 using Soenneker.Extensions.ValueTask;
 using Soenneker.GraphQL.Generator.Abstract;
 using Soenneker.GraphQL.Generator.Dtos;
-
 namespace Soenneker.GraphQL.Generator.Cli;
-
 public sealed class ConsoleHostedService : IHostedService
 {
     private readonly ILogger<ConsoleHostedService> _logger;
@@ -26,6 +24,11 @@ public sealed class ConsoleHostedService : IHostedService
         _cliOptions = cliOptions;
     }
 
+    /// <summary>
+    /// Starts the Console Hosted Service and begins its background work.
+    /// </summary>
+    /// <param name="cancellationToken">Token used to cancel the operation.</param>
+    /// <returns>A task that completes after the Console Hosted Service has started.</returns>
     public Task StartAsync(CancellationToken cancellationToken = default)
     {
         _appLifetime.ApplicationStarted.Register(() =>
@@ -77,6 +80,11 @@ public sealed class ConsoleHostedService : IHostedService
         return Task.CompletedTask;
     }
 
+    /// <summary>
+    /// Stops the Console Hosted Service and waits for its background work to finish.
+    /// </summary>
+    /// <param name="cancellationToken">Token used to cancel the operation.</param>
+    /// <returns>A task that completes after the Console Hosted Service has stopped.</returns>
     public Task StopAsync(CancellationToken cancellationToken)
     {
         _logger.LogDebug("Exiting with return code: {exitCode}", _exitCode);

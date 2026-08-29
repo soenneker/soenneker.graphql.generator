@@ -14,6 +14,8 @@ public static class GraphQlGeneratorRegistrar
     /// <summary>
     /// Adds GraphQL generator services as scoped dependencies.
     /// </summary>
+    /// <param name="services">Service collection that receives the registration.</param>
+    /// <returns>The same service collection, so additional registrations can be chained.</returns>
     public static IServiceCollection AddGraphQlGeneratorAsScoped(this IServiceCollection services)
     {
         services.AddFileUtilAsScoped();
@@ -26,6 +28,8 @@ public static class GraphQlGeneratorRegistrar
     /// <summary>
     /// Adds GraphQL generator services as singleton dependencies.
     /// </summary>
+    /// <param name="services">Service collection that receives the registration.</param>
+    /// <returns>The same service collection, so additional registrations can be chained.</returns>
     public static IServiceCollection AddGraphQlGeneratorAsSingleton(this IServiceCollection services)
     {
         services.AddFileUtilAsSingleton();

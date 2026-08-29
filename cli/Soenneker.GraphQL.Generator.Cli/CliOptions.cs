@@ -1,5 +1,4 @@
 namespace Soenneker.GraphQL.Generator.Cli;
-
 public sealed class CliOptions
 {
     public const string Usage = """
@@ -19,6 +18,15 @@ Example:
 
     public string[] Args { get; }
 
+    /// <summary>
+    /// Attempts to get config path.
+    /// </summary>
+    /// <param name="args">Command-line arguments passed to the application.</param>
+    /// <param name="configPath">Path of the config to use.</param>
+    /// <param name="error">Error for the try get config path operation.</param>
+    /// <param name="showUsage">Whether show usage.</param>
+    /// <param name="exitCode">Exit Code for the try get config path operation.</param>
+    /// <returns>true if a matching value was found and assigned to the output parameter; otherwise, false.</returns>
     public static bool TryGetConfigPath(string[] args, out string? configPath, out string? error, out bool showUsage, out int exitCode)
     {
         configPath = null;
