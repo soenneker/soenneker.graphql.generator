@@ -14,7 +14,6 @@ using Soenneker.Extensions.String;
 
 namespace Soenneker.GraphQL.Generator;
 
-/// <inheritdoc cref="IGraphQlGenerator"/>
 public sealed class GraphQlGenerator : IGraphQlGenerator
 {
     private readonly IFileUtil? _fileUtil;
