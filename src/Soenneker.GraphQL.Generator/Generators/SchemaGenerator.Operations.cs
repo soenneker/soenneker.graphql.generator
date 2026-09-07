@@ -10,10 +10,9 @@ namespace Soenneker.GraphQL.Generator.Generators;
 /// </summary>
 internal sealed partial class SchemaGenerator
 {
-    private GeneratedFile GenerateGraphQlClientRoot(IReadOnlyList<OperationLayout> queryLayouts, IReadOnlyList<OperationLayout> mutationLayouts)
+    private GeneratedFile GenerateGraphQlClientRoot(IReadOnlyList<OperationLayout> queryLayouts, IReadOnlyList<OperationLayout> mutationLayouts, IReadOnlyList<OperationGroup> operationGroups)
     {
         string entryClientName = GetEntryClientTypeName();
-        IReadOnlyList<OperationGroup> operationGroups = GetOperationGroups(queryLayouts, mutationLayouts);
         var sb = new PooledStringBuilder();
         try
         {
@@ -136,7 +135,7 @@ internal sealed partial class SchemaGenerator
 
                 string requestBuilderName = CSharpNaming.ToOperationRequestBuilderName(fieldName, classPrefix);
 
-                var args = field.Arguments?.Items?.ToList() ?? [];
+                var args = field.Arguments?.Items ?? [];
                 if (args.Count > 0)
                 {
                     string requestTypeName = CSharpNaming.ToOperationRequestName(fieldName, classPrefix);
@@ -155,7 +154,7 @@ internal sealed partial class SchemaGenerator
 
     private GeneratedFile GenerateOperationRequestType(GraphQLFieldDefinition field, string requestTypeName, string pathSegment)
     {
-        var args = field.Arguments?.Items?.ToList() ?? [];
+        var args = field.Arguments?.Items ?? [];
         var usings = CreateUsingSet(["System.Text.Json.Serialization"]);
 
         foreach (GraphQLInputValueDefinition arg in args)
@@ -210,7 +209,7 @@ internal sealed partial class SchemaGenerator
         string resultClrType = MapOutputType(field.Type);
         string nullableResultType = resultClrType.EndsWith("?", StringComparison.Ordinal) ? resultClrType : resultClrType + "?";
         string wrapperPropertyName = CSharpNaming.ToClrPropertyName(fieldName, wrapperTypeName);
-        var args = field.Arguments?.Items?.ToList() ?? [];
+        var args = field.Arguments?.Items ?? [];
         string selectionSet = BuildSelectionSet(field.Type, _config.MaxSelectionDepth);
         string variableDefinitions = BuildOperationVariableDefinitions(args);
         string fieldArguments = BuildFieldArgumentList(args);
@@ -390,9 +389,8 @@ internal sealed partial class SchemaGenerator
         }
     }
 
-    private IReadOnlyList<GeneratedFile> GenerateGroupedOperationBuilderFiles(IReadOnlyList<OperationLayout> queryLayouts, IReadOnlyList<OperationLayout> mutationLayouts)
+    private IReadOnlyList<GeneratedFile> GenerateGroupedOperationBuilderFiles(IReadOnlyList<OperationGroup> groups)
     {
-        IReadOnlyList<OperationGroup> groups = GetOperationGroups(queryLayouts, mutationLayouts);
 
         if (groups.Count == 0)
             return [];

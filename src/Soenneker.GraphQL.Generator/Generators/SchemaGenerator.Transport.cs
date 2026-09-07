@@ -142,7 +142,7 @@ internal sealed partial class SchemaGenerator
         sb.AppendLine("    public GraphQlHttpClient(HttpClient httpClient, JsonSerializerOptions? serializerOptions = null)");
         sb.AppendLine("    {");
         sb.AppendLine("        _httpClient = httpClient;");
-        sb.AppendLine("        _serializerOptions = serializerOptions ?? new JsonSerializerOptions(JsonSerializerDefaults.Web);");
+        sb.AppendLine("        _serializerOptions = serializerOptions ?? JsonSerializerOptions.Web;");
         sb.AppendLine("    }");
         sb.AppendLine();
         sb.AppendLine("    public async ValueTask<GraphQlResponse<T>> Execute<T>(");

@@ -39,8 +39,6 @@ public static class Program
             {
                 builder.AddEnvironmentVariables();
                 builder.SetBasePath(hostingContext.HostingEnvironment.ContentRootPath);
-
-                builder.Build();
             })
             .ConfigureServices((_, services) => { Startup.ConfigureServices(services, args); });
 

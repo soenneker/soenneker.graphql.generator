@@ -137,10 +137,11 @@ internal sealed partial class SchemaGenerator
         if (mutationRoot is not null)
             files.AddRange(GenerateOperationArtifacts(mutationRoot, mutationLayouts, "Mutation"));
 
-        files.AddRange(GenerateGroupedOperationBuilderFiles(queryLayouts, mutationLayouts));
+        IReadOnlyList<OperationGroup> groups = GetOperationGroups(queryLayouts, mutationLayouts);
+        files.AddRange(GenerateGroupedOperationBuilderFiles(groups));
 
         if (queryRoot is not null || mutationRoot is not null)
-            files.Add(GenerateGraphQlClientRoot(queryLayouts, mutationLayouts));
+            files.Add(GenerateGraphQlClientRoot(queryLayouts, mutationLayouts, groups));
 
         return files;
     }

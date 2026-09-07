@@ -91,33 +91,29 @@ internal static class CSharpNaming
             return value;
 
         bool hasAtPrefix = value[0] == '@';
-        string core = hasAtPrefix ? value[1..] : value;
-
-        string[] parts = core.Split('_', StringSplitOptions.RemoveEmptyEntries);
-        if (parts.Length == 0)
-            return hasAtPrefix ? "@_" : "_";
-
+        ReadOnlySpan<char> core = hasAtPrefix ? value.AsSpan(1) : value.AsSpan();
         var sb = new PooledStringBuilder(core.Length);
-
         try
         {
-            foreach (string part in parts)
+            if (hasAtPrefix)
+                sb.Append('@');
+
+            bool hasParts = false;
+            foreach (Range range in core.Split('_'))
             {
-                if (part.Length == 0)
+                ReadOnlySpan<char> part = core[range];
+                if (part.IsEmpty)
                     continue;
 
-                if (part.Length == 1)
-                {
-                    sb.Append(char.ToUpperInvariant(part[0]));
-                    continue;
-                }
-
+                hasParts = true;
                 sb.Append(char.ToUpperInvariant(part[0]));
-                sb.Append(part.AsSpan(1));
+                sb.Append(part[1..]);
             }
 
-            string result = sb.ToString();
-            return hasAtPrefix ? "@" + result : result;
+            if (!hasParts)
+                sb.Append('_');
+
+            return sb.ToString();
         }
         finally
         {
