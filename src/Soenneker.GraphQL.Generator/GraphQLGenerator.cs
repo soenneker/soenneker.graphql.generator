@@ -68,7 +68,7 @@ public sealed class GraphQlGenerator : IGraphQlGenerator
 
         string configJson = await _fileUtil.Read(resolvedConfigPath, cancellationToken: cancellationToken).NoSync();
 
-        GeneratorConfig config = JsonSerializer.Deserialize<GeneratorConfig>(configJson, JsonOptions.Default)
+        GeneratorConfig config = JsonSerializer.Deserialize(configJson, GeneratorJsonContext.Default.GeneratorConfig)
                                  ?? throw new InvalidOperationException("Failed to deserialize config.");
 
         if (string.IsNullOrWhiteSpace(config.SchemaPath))
@@ -84,17 +84,6 @@ public sealed class GraphQlGenerator : IGraphQlGenerator
 
         string schemaText = await _fileUtil.Read(resolvedSchemaPath, log: false, cancellationToken: cancellationToken).NoSync();
         return await Run(schemaText, config, cancellationToken).NoSync();
-    }
-
-    private static class JsonOptions
-    {
-        public static readonly JsonSerializerOptions Default = new()
-        {
-            PropertyNameCaseInsensitive = true,
-            ReadCommentHandling = JsonCommentHandling.Skip,
-            AllowTrailingCommas = true,
-            Converters = { new JsonStringEnumConverter() }
-        };
     }
 
     private async ValueTask WriteFiles(GenerationResult result, string resolvedOutputDirectory, CancellationToken cancellationToken)
