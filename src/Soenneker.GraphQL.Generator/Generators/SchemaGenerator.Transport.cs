@@ -106,6 +106,7 @@ internal sealed partial class SchemaGenerator
         AppendHeader(ref sb, usings);
         sb.AppendLine("public interface IGraphQlClient");
         sb.AppendLine("{");
+        sb.AppendLine("    /// <remarks>Custom response and variable types require explicit JSON metadata in the client serializer options.</remarks>");
         sb.AppendLine("    ValueTask<GraphQlResponse<T>> Execute<T>(");
         sb.AppendLine("        string query,");
         sb.AppendLine("        object? variables = null,");
@@ -127,6 +128,7 @@ internal sealed partial class SchemaGenerator
             "System.Net.Http",
             "System.Net.Http.Json",
             "System.Text.Json",
+            "System.Text.Json.Serialization.Metadata",
             "System.Threading",
             "System.Threading.Tasks"
         ]);
@@ -142,7 +144,11 @@ internal sealed partial class SchemaGenerator
         sb.AppendLine("    public GraphQlHttpClient(HttpClient httpClient, JsonSerializerOptions? serializerOptions = null)");
         sb.AppendLine("    {");
         sb.AppendLine("        _httpClient = httpClient;");
-        sb.AppendLine("        _serializerOptions = serializerOptions ?? JsonSerializerOptions.Web;");
+        sb.AppendLine("        _serializerOptions = serializerOptions is null ? new JsonSerializerOptions(JsonSerializerDefaults.Web) : new JsonSerializerOptions(serializerOptions);");
+        if (_config.EmitJsonSerializerContext)
+            sb.AppendLine($"        _serializerOptions.TypeInfoResolver ??= {_config.JsonSerializerContextName}.Default;");
+        else
+            sb.AppendLine("        if (_serializerOptions.TypeInfoResolver is null) throw new ArgumentException(\"A JSON metadata resolver is required when context generation is disabled.\", nameof(serializerOptions));");
         sb.AppendLine("    }");
         sb.AppendLine();
         sb.AppendLine("    public async ValueTask<GraphQlResponse<T>> Execute<T>(");
@@ -156,10 +162,10 @@ internal sealed partial class SchemaGenerator
         sb.AppendLine("            Variables = variables");
         sb.AppendLine("        };");
         sb.AppendLine();
-        sb.AppendLine("        using HttpResponseMessage response = await _httpClient.PostAsJsonAsync(string.Empty, request, _serializerOptions, cancellationToken).ConfigureAwait(false);");
+        sb.AppendLine("        using HttpResponseMessage response = await _httpClient.PostAsJsonAsync(string.Empty, request, (JsonTypeInfo<GraphQlRequest>)_serializerOptions.GetTypeInfo(typeof(GraphQlRequest)), cancellationToken).ConfigureAwait(false);");
         sb.AppendLine("        response.EnsureSuccessStatusCode();");
         sb.AppendLine();
-        sb.AppendLine("        GraphQlResponse<T>? payload = await response.Content.ReadFromJsonAsync<GraphQlResponse<T>>(_serializerOptions, cancellationToken).ConfigureAwait(false);");
+        sb.AppendLine("        GraphQlResponse<T>? payload = await response.Content.ReadFromJsonAsync((JsonTypeInfo<GraphQlResponse<T>>)_serializerOptions.GetTypeInfo(typeof(GraphQlResponse<T>)), cancellationToken).ConfigureAwait(false);");
         sb.AppendLine("        return payload ?? throw new InvalidOperationException(\"GraphQL response body was null.\");");
         sb.AppendLine("    }");
         sb.AppendLine("}");

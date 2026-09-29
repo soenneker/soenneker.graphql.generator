@@ -31,6 +31,7 @@ internal sealed partial class SchemaGenerator
             }
         }
 
+        allTypes.Add("GraphQlRequest");
         allTypes.Add("GraphQlError");
         allTypes.Add("GraphQlErrorLocation");
 
@@ -40,13 +41,21 @@ internal sealed partial class SchemaGenerator
         if (queryRoot?.Fields?.Items is { Count: > 0 })
         {
             foreach (GraphQLFieldDefinition field in queryRoot.Fields.Items)
+            {
                 allTypes.Add(CSharpNaming.ToOperationDataTypeName(NameOf(field.Name), "Query"));
+                if (field.Arguments?.Items is { Count: > 0 })
+                    allTypes.Add(CSharpNaming.ToOperationRequestName(NameOf(field.Name), "Query"));
+            }
         }
 
         if (mutationRoot?.Fields?.Items is { Count: > 0 })
         {
             foreach (GraphQLFieldDefinition field in mutationRoot.Fields.Items)
+            {
                 allTypes.Add(CSharpNaming.ToOperationDataTypeName(NameOf(field.Name), "Mutation"));
+                if (field.Arguments?.Items is { Count: > 0 })
+                    allTypes.Add(CSharpNaming.ToOperationRequestName(NameOf(field.Name), "Mutation"));
+            }
         }
 
         var usings = CreateUsingSet(["System.Text.Json.Serialization"]);
@@ -62,7 +71,15 @@ internal sealed partial class SchemaGenerator
         {
             sb.Append("[JsonSerializable(typeof(");
             sb.Append(type);
-            sb.AppendLine("))]");
+            sb.Append(")");
+            // Schema types can otherwise collide with System.Object or inferred List<T> metadata names.
+            if (type == "Object" || (type.StartsWith("List", StringComparison.Ordinal) && allTypes.Contains(type[4..])))
+            {
+                sb.Append(", TypeInfoPropertyName = \"Schema");
+                sb.Append(type);
+                sb.Append("Metadata\"");
+            }
+            sb.AppendLine(")]");
             sb.Append("[JsonSerializable(typeof(GraphQlResponse<");
             sb.Append(type);
             sb.AppendLine(">))]");
