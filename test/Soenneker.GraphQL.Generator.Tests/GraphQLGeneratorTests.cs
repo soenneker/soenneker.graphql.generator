@@ -19,7 +19,7 @@ public sealed class GraphQlGeneratorTests : HostedUnitTest
     }
 
     [Test]
-    public async Task Json_context_includes_operation_variables_and_transport_envelope()
+    public async ValueTask Json_context_includes_operation_variables_and_transport_envelope()
     {
         var generator = new GraphQlGenerator();
         GenerationResult result = generator.Generate("type Query { item(id: String!): String }", new GeneratorConfig
@@ -36,7 +36,7 @@ public sealed class GraphQlGeneratorTests : HostedUnitTest
     }
 
     [Test]
-    public async Task Request_builder_with_list_result_should_include_generic_collections_using()
+    public async ValueTask Request_builder_with_list_result_should_include_generic_collections_using()
     {
         const string schema = "type Query { items: [String!]! }";
         var generator = new GraphQlGenerator();
