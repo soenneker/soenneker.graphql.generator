@@ -3,6 +3,7 @@ using System.Threading.Tasks;
 using Soenneker.GraphQL.Generator.Config;
 using Soenneker.GraphQL.Generator.Dtos;
 using Soenneker.Tests.HostedUnit;
+using System.Threading;
 
 namespace Soenneker.GraphQL.Generator.Tests;
 
@@ -19,7 +20,7 @@ public sealed class GraphQlGeneratorTests : HostedUnitTest
     }
 
     [Test]
-    public async ValueTask Json_context_includes_operation_variables_and_transport_envelope()
+    public async ValueTask Json_context_includes_operation_variables_and_transport_envelope(CancellationToken cancellationToken)
     {
         var generator = new GraphQlGenerator();
         GenerationResult result = generator.Generate("type Query { item(id: String!): String }", new GeneratorConfig
@@ -36,7 +37,7 @@ public sealed class GraphQlGeneratorTests : HostedUnitTest
     }
 
     [Test]
-    public async ValueTask Request_builder_with_list_result_should_include_generic_collections_using()
+    public async ValueTask Request_builder_with_list_result_should_include_generic_collections_using(CancellationToken cancellationToken)
     {
         const string schema = "type Query { items: [String!]! }";
         var generator = new GraphQlGenerator();
