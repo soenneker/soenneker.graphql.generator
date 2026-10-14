@@ -17,6 +17,6 @@
         <PackageReference Include="Microsoft.Extensions.Hosting" Version="10.0.13" />
     </ItemGroup>
     <ItemGroup>
-        <PackageReference Include="Soenneker.Extensions.ValueTask" Version="4.0.127" />
+        <PackageReference Include="Soenneker.Extensions.ValueTask" Version="4.0.132" />
     </ItemGroup>
 </Project>
