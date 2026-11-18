@@ -139,7 +139,7 @@ internal sealed partial class SchemaGenerator
     {
         if (type is not GraphQLNonNullType) return false;
         if (propertyType.StartsWith("List<", StringComparison.Ordinal)) return false;
-        if (propertyType.EndsWith("?", StringComparison.Ordinal)) return false;
+        if (propertyType.EndsWith('?')) return false;
         if (ScalarMapping.IsNonNullableValueType(propertyType)) return false;
         if (_definedEnums.Contains(propertyType)) return false;
         return true;

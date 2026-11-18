@@ -207,7 +207,7 @@ internal sealed partial class SchemaGenerator
         string fieldName = NameOf(field.Name);
         string executeMethodName = CSharpNaming.ToOperationMethodName(fieldName, operationKind);
         string resultClrType = MapOutputType(field.Type);
-        string nullableResultType = resultClrType.EndsWith("?", StringComparison.Ordinal) ? resultClrType : resultClrType + "?";
+        string nullableResultType = resultClrType.EndsWith('?') ? resultClrType : resultClrType + "?";
         string wrapperPropertyName = CSharpNaming.ToClrPropertyName(fieldName, wrapperTypeName);
         var args = field.Arguments?.Items ?? [];
         string selectionSet = BuildSelectionSet(field.Type, _config.MaxSelectionDepth);
